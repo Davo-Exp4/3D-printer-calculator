@@ -65,6 +65,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   runCalculation();
   renderProforma();
+  
+  // Initialize scale for PDF preview
+  setTimeout(adjustPDFPreviewScale, 300);
+  window.addEventListener("resize", adjustPDFPreviewScale);
 });
 
 // Initialize Firebase & Firestore
@@ -582,6 +586,7 @@ function renderProforma() {
   });
 
   saveDraft();
+  adjustPDFPreviewScale();
 }
 
 // Clear Proforma Builder
@@ -849,4 +854,29 @@ function setupEventListeners() {
   document.getElementById("clear-proforma-btn").addEventListener("click", clearProforma);
   document.getElementById("save-proforma-btn").addEventListener("click", saveProformaToHistory);
   document.getElementById("download-pdf-btn").addEventListener("click", downloadPDF);
+}
+
+// Dynamically scale down the PDF preview sheet to fit mobile screens
+function adjustPDFPreviewScale() {
+  const container = document.querySelector('.proforma-preview-container');
+  const pdf = document.getElementById('proforma-print-area');
+  if (!container || !pdf) return;
+  
+  const containerWidth = container.clientWidth;
+  if (containerWidth < 840) {
+    const padding = 20; // left + right padding
+    const availableWidth = containerWidth - padding;
+    const scale = availableWidth / 800;
+    
+    pdf.style.transform = `scale(${scale})`;
+    pdf.style.transformOrigin = 'top center';
+    
+    // Scale container height proportionally to prevent extra empty space at bottom
+    const pdfHeight = pdf.offsetHeight;
+    container.style.height = `${(pdfHeight * scale) + 20}px`;
+  } else {
+    pdf.style.transform = '';
+    pdf.style.transformOrigin = '';
+    container.style.height = '';
+  }
 }

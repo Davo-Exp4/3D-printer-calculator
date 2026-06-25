@@ -285,7 +285,7 @@ textarea:focus {
 .col-4 { width: calc(33.333% - 10.666px); }
 .col-6 { width: calc(50% - 8px); }
 
-@media (max-width: 600px) {
+@media (max-width: 768px) {
   .form-row {
     flex-direction: column;
     gap: 16px;
@@ -569,7 +569,7 @@ textarea:focus {
   width: 120px;
 }
 
-@media (max-width: 600px) {
+@media (max-width: 768px) {
   .manual-item-row {
     flex-direction: column;
   }
@@ -588,7 +588,7 @@ textarea:focus {
   padding-top: 24px;
 }
 
-@media (max-width: 600px) {
+@media (max-width: 768px) {
   .editor-actions {
     flex-direction: column-reverse;
   }
@@ -779,6 +779,20 @@ textarea:focus {
 
 body.light-mode .proforma-preview-container {
   background-color: #e5e0ea;
+}
+
+@media (max-width: 840px) {
+  .proforma-preview-container {
+    padding: 10px;
+    overflow: hidden;
+    display: block;
+    position: relative;
+    height: auto;
+  }
+  
+  .proforma-pdf {
+    transition: transform 0.2s ease;
+  }
 }
 
 /* Printable PDF Area Styling */

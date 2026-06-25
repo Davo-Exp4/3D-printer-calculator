@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cotizador Impresión 3D & Proformas</title>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+  <!-- html2pdf Library -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <!-- Firebase Compatibility SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+</head>
+<body class="light-mode">
+  <div class="app-wrapper">
+    <header class="app-header">
+      <div class="header-logo">
+        <img src="logo/logo.jpg" alt="Logo" class="app-header-logo" onerror="this.src='https://placehold.co/150x150?text=AD+Impresiones+3D'">
+        <div class="logo-text">
+          <h1>Cotizador 3D</h1>
+          <span>Ambar & Davo</span>
+        </div>
+      </div>
+      
+      <div class="header-actions">
+        <span id="db-status-badge" class="status-badge local-badge" title="Estado de la base de datos">
+          <i class="fa-solid fa-database"></i> Modo Local
+        </span>
+        <button id="theme-toggle" class="btn-icon" title="Cambiar tema">
+          <i class="fa-solid fa-moon"></i>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      
+      <!-- Left Column: Controls & Calculations -->
+      <section class="controls-column">
+        
+        <!-- Calculator Card -->
+        <div class="card card-calculator">
+          <div class="card-header">
+            <i class="fa-solid fa-calculator text-primary"></i>
+            <h2>Calculadora de Pieza</h2>
+          </div>
+          <div class="card-body">
+            <div class="form-group">
+              <label for="piece-name">Nombre de la Pieza</label>
+              <div class="input-wrapper">
+                <i class="fa-solid fa-tag input-icon"></i>
+                <input type="text" id="piece-name" placeholder="Ej: León articulado, Soporte para audífonos" value="Pieza 3D">
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group col-6">
+                <label>Tiempo de Impresión</label>
+                <div class="time-inputs">
+                  <div class="input-wrapper">
+                    <input type="number" id="print-hours" min="0" value="1" placeholder="Horas">
+                    <span class="input-suffix">h</span>
+                  </div>
+                  <div class="input-wrapper">
+                    <input type="number" id="print-minutes" min="0" max="59" value="30" placeholder="Minutos">
+                    <span class="input-suffix">m</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-group col-6">
+                <label for="print-grams">Peso de Filamento</label>
+                <div class="input-wrapper">
+                  <input type="number" id="print-grams" min="0" value="50" placeholder="Ej: 45">
+                  <span class="input-suffix">g</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Cost Breakdown Live Preview -->
+            <div class="cost-breakdown">
+              <h3>Desglose de Costos</h3>
+              <div class="breakdown-row">
+                <span>Tiempo (<span id="total-minutes-display">90</span> min):</span>
+                <span class="val" id="time-cost-display">$3.60</span>
+              </div>
+              <div class="breakdown-row">
+                <span>Filamento (<span id="grams-display">50</span>g):</span>
+                <span class="val" id="material-cost-display">$1.00</span>
+              </div>
+              <div class="breakdown-row total-row">
+                <span>Precio Sugerido:</span>
+                <span class="val highlight" id="total-cost-display">$4.60</span>
+              </div>
+            </div>
+
+            <!-- Add to Proforma Controls -->
+            <div class="proforma-add-actions">
+              <div class="quantity-selector">
+                <button type="button" class="qty-btn" id="qty-minus"><i class="fa-solid fa-minus"></i></button>
+                <input type="number" id="piece-qty" min="1" value="1">
+                <button type="button" class="qty-btn" id="qty-plus"><i class="fa-solid fa-plus"></i></button>
+              </div>
+              <button id="add-to-proforma-btn" class="btn btn-primary btn-block">
+                <i class="fa-solid fa-plus-circle"></i> Agregar a Proforma
+              </button>
+            </div>
+            <button id="save-piece-catalog-btn" class="btn btn-secondary btn-block" style="margin-top: 10px;">
+              <i class="fa-solid fa-bookmark"></i> Guardar Pieza en Catálogo
+            </button>
+          </div>
+        </div>
+
+        <!-- Catalog Card -->
+        <div class="card card-catalog">
+          <div class="card-header">
+            <i class="fa-solid fa-boxes-stacked text-primary"></i>
+            <h2>Catálogo de Piezas Compartido</h2>
+          </div>
+          <div class="card-body">
+            <div id="catalog-list" class="catalog-list">
+              <div class="empty-state">
+                <i class="fa-solid fa-shapes"></i>
+                <p>No hay piezas guardadas en la nube.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Configuration Card -->
+        <div class="card card-settings">
+          <div class="card-header collapsible-header" id="settings-toggle">
+            <div class="header-title">
+              <i class="fa-solid fa-sliders text-primary"></i>
+              <h2>Configuración de Tarifas</h2>
+            </div>
+            <i class="fa-solid fa-chevron-down toggle-icon"></i>
+          </div>
+          <div class="card-body collapsible-body hidden" id="settings-body">
+            <div class="form-group">
+              <label for="rate-time">Costo por Minuto de Impresión ($)</label>
+              <div class="input-wrapper">
+                <i class="fa-solid fa-clock-pulse input-icon"></i>
+                <input type="number" id="rate-time" step="0.001" min="0" value="0.04">
+              </div>
+              <small class="help-text">Ej: $0.04 por minuto equivale a $2.40 por hora de impresión.</small>
+            </div>
+
+            <div class="form-group">
+              <label for="rate-material">Costo por Gramo de Filamento ($)</label>
+              <div class="input-wrapper">
+                <i class="fa-solid fa-weight-hanging input-icon"></i>
+                <input type="number" id="rate-material" step="0.001" min="0" value="0.02">
+              </div>
+              <small class="help-text">Ej: $0.02 por gramo equivale a $20.00 por kilogramo de filamento.</small>
+            </div>
+            
+            <button id="reset-rates-btn" class="btn btn-secondary btn-sm">
+              <i class="fa-solid fa-rotate-left"></i> Valores por Defecto
+            </button>
+          </div>
+        </div>
+
+        <!-- History Card -->
+        <div class="card card-history">
+          <div class="card-header">
+            <i class="fa-solid fa-folder-open text-primary"></i>
+            <h2>Historial de Proformas</h2>
+          </div>
+          <div class="card-body">
+            <div id="history-list" class="history-list">
+              <div class="empty-state">
+                <i class="fa-solid fa-receipt"></i>
+                <p>No tienes proformas guardadas aún.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- Right Column: Proforma Editor & Preview -->
+      <section class="proforma-column">
+        
+        <!-- Editor Card -->
+        <div class="card card-editor">
+          <div class="card-header">
+            <i class="fa-solid fa-file-pen text-primary"></i>
+            <h2>Datos de la Proforma</h2>
+          </div>
+          <div class="card-body">
+            <div class="form-row">
+              <div class="form-group col-4">
+                <label for="client-name">Cliente</label>
+                <input type="text" id="client-name" placeholder="Nombre del cliente" value="Belén Torres">
+              </div>
+              <div class="form-group col-4">
+                <label for="client-attention">Atención</label>
+                <input type="text" id="client-attention" placeholder="Persona que atiende" value="Ambar">
+              </div>
+              <div class="form-group col-4">
+                <label for="client-phone">Teléfono</label>
+                <input type="text" id="client-phone" placeholder="Celular" value="0987363300">
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group col-4">
+                <label for="client-address">Dirección</label>
+                <input type="text" id="client-address" placeholder="Dirección del cliente">
+              </div>
+              <div class="form-group col-4">
+                <label for="client-email">E-mail</label>
+                <input type="email" id="client-email" placeholder="Correo electrónico">
+              </div>
+              <div class="form-group col-4">
+                <label for="client-others">Otros / RUC</label>
+                <input type="text" id="client-others" placeholder="RUC o info adicional">
+              </div>
+            </div>
+
+            <div class="form-row border-top">
+              <div class="form-group col-4">
+                <label for="payment-method">Forma de Pago</label>
+                <input type="text" id="payment-method" placeholder="Ej: Transferencia, Efectivo" value="Transferencia">
+              </div>
+              <div class="form-group col-4">
+                <label for="delivery-date">Fecha de Entrega</label>
+                <input type="text" id="delivery-date" placeholder="Ej: 23 de junio" value="23 de junio">
+              </div>
+              <div class="form-group col-4">
+                <label for="proforma-discount">Descuento</label>
+                <div style="display: flex; gap: 6px;">
+                  <select id="discount-type" style="width: 70px; padding: 12px 6px;">
+                    <option value="fixed" selected>$</option>
+                    <option value="percent">%</option>
+                  </select>
+                  <input type="number" id="proforma-discount" min="0" value="5.00" step="0.01" style="flex: 1;">
+                </div>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="proforma-notes">Observaciones / Notas de la Proforma</label>
+              <textarea id="proforma-notes" rows="3" placeholder="Detalle de colores, materiales, empaques, etc.">10 bandejas joyeros, color negro
+10 Leones, color beige
+10 Macetas, color blanco hueso + suculentas
+10 Cajas Cartulina</textarea>
+            </div>
+
+            <!-- Add Manual Item -->
+            <div class="manual-item-section">
+              <h3>Añadir Ítem Manual</h3>
+              <div class="manual-item-row">
+                <input type="number" id="manual-qty" class="col-qty" min="1" value="1" placeholder="Cant.">
+                <input type="text" id="manual-desc" class="col-desc" placeholder="Descripción del artículo">
+                <input type="number" id="manual-price" class="col-price" min="0" step="0.01" placeholder="Precio U. ($)">
+                <button id="add-manual-item-btn" class="btn btn-secondary">
+                  <i class="fa-solid fa-plus"></i> Añadir
+                </button>
+              </div>
+            </div>
+
+            <div class="editor-actions">
+              <button id="clear-proforma-btn" class="btn btn-danger-outline">
+                <i class="fa-solid fa-trash-can"></i> Limpiar Todo
+              </button>
+              <button id="save-proforma-btn" class="btn btn-secondary">
+                <i class="fa-solid fa-floppy-disk"></i> Guardar Historial
+              </button>
+              <button id="download-pdf-btn" class="btn btn-primary">
+                <i class="fa-solid fa-file-pdf"></i> Generar y Descargar PDF
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Live Preview Title -->
+        <div class="preview-title-bar">
+          <i class="fa-solid fa-eye text-primary"></i>
+          <h2>Vista Previa del PDF</h2>
+        </div>
+
+        <!-- Proforma PDF Container (Exactly modeled after the user's template) -->
+        <div class="proforma-preview-container">
+          <div id="proforma-print-area" class="proforma-pdf">
+            
+            <!-- PDF Header -->
+            <div class="pdf-header">
+              <div class="pdf-logo-area">
+                <img id="pdf-logo" src="logo/logo.jpg" alt="Logo Impresiones 3D" onerror="this.src='https://placehold.co/150x150?text=AD+Impresiones+3D'">
+                <div class="logo-subtext">Impresiones 3D</div>
+              </div>
+              <div class="pdf-title-area">
+                <h1>PROFORMA</h1>
+              </div>
+            </div>
+
+            <!-- PDF Customer Details -->
+            <div class="pdf-details-grid">
+              <div class="details-left">
+                <div class="detail-row">
+                  <span class="lbl">Cliente</span>
+                  <span class="val" id="pdf-client-name">-</span>
+                </div>
+                <div class="detail-row">
+                  <span class="lbl">Dirección</span>
+                  <span class="val" id="pdf-client-address">-</span>
+                </div>
+                <div class="detail-row">
+                  <span class="lbl">E-mail</span>
+                  <span class="val" id="pdf-client-email">-</span>
+                </div>
+              </div>
+              <div class="details-right">
+                <div class="detail-row">
+                  <span class="lbl">Atención</span>
+                  <span class="val" id="pdf-client-attention">-</span>
+                </div>
+                <div class="detail-row">
+                  <span class="lbl">Teléfono</span>
+                  <span class="val" id="pdf-client-phone">-</span>
+                </div>
+                <div class="detail-row">
+                  <span class="lbl">Otros</span>
+                  <span class="val" id="pdf-client-others">-</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- PDF Table of Items -->
+            <table class="pdf-table">
+              <thead>
+                <tr>
+                  <th class="col-cant">Cantidad</th>
+                  <th class="col-description">Descripción</th>
+                  <th class="col-unit">V. Unit</th>
+                  <th class="col-total">Valor Total</th>
+                </tr>
+              </thead>
+              <tbody id="pdf-items-body">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+
+            <!-- PDF Bottom Section -->
+            <div class="pdf-footer-layout">
+              <div class="pdf-footer-left">
+                <div class="observaciones-header">OBSERVACIONES</div>
+                <div class="footer-fields">
+                  <div class="footer-field-row">
+                    <span class="bold">Forma de pago:</span>
+                    <span id="pdf-payment-method">-</span>
+                  </div>
+                  <div class="footer-field-row">
+                    <span class="bold">Fecha de entrega:</span>
+                    <span id="pdf-delivery-date">-</span>
+                  </div>
+                  <div class="footer-field-row notas-block">
+                    <span class="bold">Notas:</span>
+                    <p id="pdf-notes">-</p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="pdf-footer-right">
+                <div class="totals-block">
+                  <div class="total-row-item">
+                    <span class="lbl subtotal-lbl">SUBTOTAL</span>
+                    <span class="val" id="pdf-subtotal">$ 0,00</span>
+                  </div>
+                  <div class="total-row-item">
+                    <span class="lbl discount-lbl">Descuento</span>
+                    <span class="val" id="pdf-discount">$ 0,00</span>
+                  </div>
+                  <div class="total-row-item total-final">
+                    <span class="lbl total-lbl">TOTAL</span>
+                    <span class="val" id="pdf-total">$ 0,00</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      </section>
+    </main>
+  </div>
+  
+  <!-- Script -->
+  <script src="app.js"></script>
+</body>
+</html>

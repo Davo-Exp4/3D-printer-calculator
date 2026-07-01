@@ -2,7 +2,7 @@
 let appState = {
   rates: {
     time: 0.04,      // per minute
-    material: 0.02  // per gram
+    material: 0.03  // per gram
   },
   catalog: [], // Shared pieces catalog
   proforma: {
@@ -807,9 +807,9 @@ function setupEventListeners() {
   });
 
   document.getElementById("reset-rates-btn").addEventListener("click", () => {
-    appState.rates = { time: 0.04, material: 0.02 };
+    appState.rates = { time: 0.04, material: 0.03 };
     rateTimeInput.value = 0.04;
-    rateMaterialInput.value = 0.02;
+    rateMaterialInput.value = 0.03;
     saveRates();
     runCalculation();
   });

@@ -1,8 +1,9 @@
 // Core Application State
 let appState = {
   rates: {
-    time: 0.04,      // per minute
-    material: 0.03  // per gram
+    material: 0.02,  // per gram
+    time: 0.32,      // per hour
+    margin: 100      // profit margin (%)
   },
   catalog: [], // Shared pieces catalog
   proforma: {
@@ -34,7 +35,8 @@ let appState = {
       }
     ]
   },
-  history: []
+  history: [],
+  sales: [] // List of completed sales
 };
 
 // Firebase Configuration & State
@@ -135,8 +137,9 @@ function setupFirebaseListeners() {
   db.collection("settings").doc("rates").onSnapshot((doc) => {
     if (doc.exists) {
       appState.rates = doc.data();
-      document.getElementById("rate-time").value = appState.rates.time;
-      document.getElementById("rate-material").value = appState.rates.material;
+      document.getElementById("rate-time").value = appState.rates.time || 0.32;
+      document.getElementById("rate-material").value = appState.rates.material || 0.02;
+      document.getElementById("rate-margin").value = appState.rates.margin || 100;
       runCalculation();
       renderProforma();
     } else {
@@ -174,6 +177,20 @@ function setupFirebaseListeners() {
   }, (error) => {
     console.warn("History snapshot error:", error);
   });
+
+  // 4. Listen to Shared Sales Log
+  db.collection("sales").orderBy("timestamp", "desc").onSnapshot((querySnapshot) => {
+    appState.sales = [];
+    querySnapshot.forEach((doc) => {
+      appState.sales.push({
+        id: doc.id,
+        ...doc.data()
+      });
+    });
+    renderSales();
+  }, (error) => {
+    console.warn("Sales snapshot error:", error);
+  });
 }
 
 // Fallback to LocalStorage Data Loading
@@ -182,8 +199,9 @@ function setupLocalBackupListeners() {
   const savedRates = localStorage.getItem("cotizador_3d_rates");
   if (savedRates) {
     appState.rates = JSON.parse(savedRates);
-    document.getElementById("rate-time").value = appState.rates.time;
-    document.getElementById("rate-material").value = appState.rates.material;
+    document.getElementById("rate-time").value = appState.rates.time || 0.32;
+    document.getElementById("rate-material").value = appState.rates.material || 0.02;
+    document.getElementById("rate-margin").value = appState.rates.margin || 100;
   }
   runCalculation();
 
@@ -207,6 +225,13 @@ function setupLocalBackupListeners() {
     appState.history = JSON.parse(savedHistory);
   }
   renderHistory();
+
+  // Load local sales
+  const savedSales = localStorage.getItem("cotizador_3d_sales");
+  if (savedSales) {
+    appState.sales = JSON.parse(savedSales);
+  }
+  renderSales();
 }
 
 // Save Current Rates
@@ -286,15 +311,20 @@ function runCalculation() {
   const grams = Math.max(0, parseFloat(document.getElementById("print-grams").value) || 0);
   
   const totalMinutes = (hours * 60) + minutes;
-  const timeCost = totalMinutes * appState.rates.time;
+  const timeCost = (totalMinutes / 60) * appState.rates.time;
   const materialCost = grams * appState.rates.material;
-  const totalCost = timeCost + materialCost;
+  const productionCost = timeCost + materialCost;
+  const profitValue = productionCost * (appState.rates.margin / 100);
+  const totalCost = productionCost + profitValue;
 
   // Update DOM displays
   document.getElementById("total-minutes-display").textContent = totalMinutes;
   document.getElementById("time-cost-display").textContent = formatCurrency(timeCost);
   document.getElementById("grams-display").textContent = grams;
   document.getElementById("material-cost-display").textContent = formatCurrency(materialCost);
+  document.getElementById("production-cost-display").textContent = formatCurrency(productionCost);
+  document.getElementById("margin-percentage-display").textContent = appState.rates.margin;
+  document.getElementById("profit-value-display").textContent = formatCurrency(profitValue);
   document.getElementById("total-cost-display").textContent = formatCurrency(totalCost);
 }
 
@@ -307,7 +337,11 @@ function addItemToProforma() {
   const minutes = Math.max(0, parseInt(document.getElementById("print-minutes").value) || 0);
   const grams = Math.max(0, parseFloat(document.getElementById("print-grams").value) || 0);
   const totalMinutes = (hours * 60) + minutes;
-  const unitPrice = (totalMinutes * appState.rates.time) + (grams * appState.rates.material);
+  
+  const timeCost = (totalMinutes / 60) * appState.rates.time;
+  const materialCost = grams * appState.rates.material;
+  const productionCost = timeCost + materialCost;
+  const unitPrice = productionCost * (1 + appState.rates.margin / 100);
 
   const existingItemIndex = appState.proforma.items.findIndex(
     item => item.description.toLowerCase() === pieceName.toLowerCase() && Math.abs(item.unitPrice - unitPrice) < 0.01
@@ -793,6 +827,7 @@ function setupEventListeners() {
   // Rates Inputs
   const rateTimeInput = document.getElementById("rate-time");
   const rateMaterialInput = document.getElementById("rate-material");
+  const rateMarginInput = document.getElementById("rate-margin");
   
   rateTimeInput.addEventListener("input", () => {
     appState.rates.time = Math.max(0, parseFloat(rateTimeInput.value) || 0);
@@ -806,10 +841,17 @@ function setupEventListeners() {
     runCalculation();
   });
 
+  rateMarginInput.addEventListener("input", () => {
+    appState.rates.margin = Math.max(0, parseInt(rateMarginInput.value) || 0);
+    saveRates();
+    runCalculation();
+  });
+
   document.getElementById("reset-rates-btn").addEventListener("click", () => {
-    appState.rates = { time: 0.04, material: 0.03 };
-    rateTimeInput.value = 0.04;
-    rateMaterialInput.value = 0.03;
+    appState.rates = { material: 0.02, time: 0.32, margin: 100 };
+    rateTimeInput.value = 0.32;
+    rateMaterialInput.value = 0.02;
+    rateMarginInput.value = 100;
     saveRates();
     runCalculation();
   });
@@ -852,6 +894,7 @@ function setupEventListeners() {
 
   // Proforma Action Buttons
   document.getElementById("clear-proforma-btn").addEventListener("click", clearProforma);
+  document.getElementById("register-sale-btn").addEventListener("click", registerSale);
   document.getElementById("save-proforma-btn").addEventListener("click", saveProformaToHistory);
   document.getElementById("download-pdf-btn").addEventListener("click", downloadPDF);
 }
@@ -878,5 +921,130 @@ function adjustPDFPreviewScale() {
     pdf.style.transform = '';
     pdf.style.transformOrigin = '';
     container.style.height = '';
+  }
+}
+
+// Register Sale (Concretar Venta)
+function registerSale() {
+  if (appState.proforma.items.length === 0) {
+    alert("No puedes registrar una venta sin artículos.");
+    return;
+  }
+
+  const client = appState.proforma.clientName.trim() || "Cliente Sin Nombre";
+  const subtotal = appState.proforma.items.reduce((sum, item) => sum + item.totalPrice, 0);
+  const total = Math.max(0, subtotal - appState.proforma.discount);
+  const timestamp = Date.now();
+  const dateStr = new Date().toLocaleDateString('es-EC', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric'
+  });
+
+  const proformaData = JSON.parse(JSON.stringify(appState.proforma));
+
+  if (useFirebase && db) {
+    db.collection("sales").add({
+      clientName: client,
+      total: total,
+      date: dateStr,
+      timestamp: timestamp,
+      data: proformaData
+    })
+    .then(() => alert("Venta registrada exitosamente en la nube."))
+    .catch(err => alert("Error al registrar venta en Firebase: " + err.message));
+  } else {
+    const record = {
+      id: "sale-" + timestamp,
+      date: dateStr,
+      timestamp: timestamp,
+      clientName: client,
+      total: total,
+      data: proformaData
+    };
+
+    appState.sales.unshift(record);
+    localStorage.setItem("cotizador_3d_sales", JSON.stringify(appState.sales));
+    renderSales();
+    alert("Venta registrada localmente en tu registro de ventas.");
+  }
+}
+
+// Delete Sale from Log
+function deleteSale(saleId) {
+  if (confirm("¿Estás seguro de que deseas eliminar esta venta registrada?")) {
+    if (useFirebase && db) {
+      db.collection("sales").doc(saleId).delete()
+        .catch(err => alert("Error al eliminar venta de Firebase: " + err.message));
+    } else {
+      appState.sales = appState.sales.filter(item => item.id !== saleId);
+      localStorage.setItem("cotizador_3d_sales", JSON.stringify(appState.sales));
+      renderSales();
+    }
+  }
+}
+
+// Render Sales UI list
+function renderSales() {
+  const container = document.getElementById("sales-list");
+  if (!container) return;
+  
+  container.innerHTML = "";
+
+  if (appState.sales.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <i class="fa-solid fa-coins"></i>
+        <p>No hay ventas concretadas registradas.</p>
+      </div>
+    `;
+    return;
+  }
+
+  appState.sales.forEach(item => {
+    const div = document.createElement("div");
+    div.className = "sales-item";
+    div.innerHTML = `
+      <div class="sale-info">
+        <span class="sale-client">${item.clientName}</span>
+        <span class="sale-meta">${item.date} • ${item.data.items.length} ítems</span>
+      </div>
+      <div class="sale-actions">
+        <span class="sale-total">${formatCurrency(item.total)}</span>
+        <button class="btn-load-sale" title="Cargar proforma de esta venta" data-id="${item.id}">
+          <i class="fa-solid fa-file-import"></i>
+        </button>
+        <button class="btn-delete-sale" title="Eliminar venta" data-id="${item.id}">
+          <i class="fa-solid fa-trash"></i>
+        </button>
+      </div>
+    `;
+    container.appendChild(div);
+  });
+
+  // Attach Sales Events
+  document.querySelectorAll(".btn-load-sale").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-id");
+      loadSaleDetails(id);
+    });
+  });
+
+  document.querySelectorAll(".btn-delete-sale").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-id");
+      deleteSale(id);
+    });
+  });
+}
+
+// Load Sale Details
+function loadSaleDetails(saleId) {
+  const record = appState.sales.find(item => item.id === saleId);
+  if (record) {
+    appState.proforma = JSON.parse(JSON.stringify(record.data));
+    populateEditorFields();
+    saveDraft();
+    renderProforma();
   }
 }

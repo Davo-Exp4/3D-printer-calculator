@@ -86,18 +86,26 @@
 
             <!-- Cost Breakdown Live Preview -->
             <div class="cost-breakdown">
-              <h3>Desglose de Costos</h3>
+              <h3>Desglose de Costos (Precio Justo)</h3>
               <div class="breakdown-row">
-                <span>Tiempo (<span id="total-minutes-display">90</span> min):</span>
-                <span class="val" id="time-cost-display">$3.60</span>
+                <span>Costo Material (<span id="grams-display">50</span>g):</span>
+                <span class="val" id="material-cost-display">$1.00</span>
               </div>
               <div class="breakdown-row">
-                <span>Filamento (<span id="grams-display">50</span>g):</span>
-                <span class="val" id="material-cost-display">$1.00</span>
+                <span>Costo Tiempo (<span id="total-minutes-display">90</span> min):</span>
+                <span class="val" id="time-cost-display">$3.60</span>
+              </div>
+              <div class="breakdown-row production-cost-row">
+                <span>Costo de Producción:</span>
+                <span class="val" id="production-cost-display">$4.60</span>
+              </div>
+              <div class="breakdown-row">
+                <span>Utilidad (<span id="margin-percentage-display">100</span>%):</span>
+                <span class="val" id="profit-value-display">$4.60</span>
               </div>
               <div class="breakdown-row total-row">
                 <span>Precio Sugerido:</span>
-                <span class="val highlight" id="total-cost-display">$4.60</span>
+                <span class="val highlight" id="total-cost-display">$9.20</span>
               </div>
             </div>
 
@@ -139,27 +147,36 @@
           <div class="card-header collapsible-header" id="settings-toggle">
             <div class="header-title">
               <i class="fa-solid fa-sliders text-primary"></i>
-              <h2>Configuración de Tarifas</h2>
+              <h2>Configuración de Tarifas (Precio Justo)</h2>
             </div>
             <i class="fa-solid fa-chevron-down toggle-icon"></i>
           </div>
           <div class="card-body collapsible-body hidden" id="settings-body">
             <div class="form-group">
-              <label for="rate-time">Costo por Minuto de Impresión ($)</label>
+              <label for="rate-material">Costo por Gramo de Filamento ($/g)</label>
               <div class="input-wrapper">
-                <i class="fa-solid fa-clock-pulse input-icon"></i>
-                <input type="number" id="rate-time" step="0.001" min="0" value="0.04">
+                <i class="fa-solid fa-weight-hanging input-icon"></i>
+                <input type="number" id="rate-material" step="0.001" min="0" value="0.02">
               </div>
-              <small class="help-text">Ej: $0.04 por minuto equivale a $2.40 por hora de impresión.</small>
+              <small class="help-text">Ej: $0.02 por gramo equivale a un rollo de $20.00 de 1 kg (precio costo).</small>
             </div>
 
             <div class="form-group">
-              <label for="rate-material">Costo por Gramo de Filamento ($)</label>
+              <label for="rate-time">Costo de Impresión por Hora ($/h)</label>
               <div class="input-wrapper">
-                <i class="fa-solid fa-weight-hanging input-icon"></i>
-                 <input type="number" id="rate-material" step="0.001" min="0" value="0.03">
+                <i class="fa-solid fa-clock-pulse input-icon"></i>
+                <input type="number" id="rate-time" step="0.01" min="0" value="0.32">
               </div>
-              <small class="help-text">Ej: $0.03 por gramo equivale a $30.00 por kilogramo de filamento (incluyendo un margen de desperdicio).</small>
+              <small class="help-text">Ej: $0.32 por hora cubre consumo de luz y depreciación de la impresora.</small>
+            </div>
+
+            <div class="form-group">
+              <label for="rate-margin">Margen de Utilidad (%)</label>
+              <div class="input-wrapper">
+                <i class="fa-solid fa-percent input-icon"></i>
+                <input type="number" id="rate-margin" step="1" min="0" value="100">
+              </div>
+              <small class="help-text">Porcentaje de ganancia bruta sobre el costo real de producción.</small>
             </div>
             
             <button id="reset-rates-btn" class="btn btn-secondary btn-sm">
@@ -179,6 +196,22 @@
               <div class="empty-state">
                 <i class="fa-solid fa-receipt"></i>
                 <p>No tienes proformas guardadas aún.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sales Log Card -->
+        <div class="card card-sales">
+          <div class="card-header">
+            <i class="fa-solid fa-cart-shopping text-primary"></i>
+            <h2>Registro de Ventas Concretadas</h2>
+          </div>
+          <div class="card-body">
+            <div id="sales-list" class="sales-list">
+              <div class="empty-state">
+                <i class="fa-solid fa-coins"></i>
+                <p>No hay ventas concretadas registradas.</p>
               </div>
             </div>
           </div>
@@ -271,6 +304,9 @@
             <div class="editor-actions">
               <button id="clear-proforma-btn" class="btn btn-danger-outline">
                 <i class="fa-solid fa-trash-can"></i> Limpiar Todo
+              </button>
+              <button id="register-sale-btn" class="btn btn-success-outline">
+                <i class="fa-solid fa-cart-check"></i> Registrar Venta
               </button>
               <button id="save-proforma-btn" class="btn btn-secondary">
                 <i class="fa-solid fa-floppy-disk"></i> Guardar Historial

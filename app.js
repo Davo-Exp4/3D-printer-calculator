@@ -39,30 +39,98 @@ let appState = {
   sales: [] // List of completed sales
 };
 
-// Firebase Configuration & State
-let db = null;
-let useFirebase = false;
+// Supabase Configuration & State
+const DEFAULT_SUPABASE_URL = "https://xlprhfkbvcllghlucuhl.supabase.co";
+const DEFAULT_SUPABASE_KEY = "sb_publishable_1c11IYmO_8ezwBw_uyH_tQ_aj0jydqE";
 
-const firebaseConfig = {
-  apiKey: "AIzaSyDWyA2caNjR9rBWnpvsl6qw-Io27PDuTMU",
-  authDomain: "davo-print-calc-3d-f89a.firebaseapp.com",
-  projectId: "davo-print-calc-3d-f89a",
-  storageBucket: "davo-print-calc-3d-f89a.firebasestorage.app",
-  messagingSenderId: "1020121501808",
-  appId: "1:1020121501808:web:144f67789b58148ad064b5"
-};
+let supabase = null;
+let useSupabase = false;
+let supabaseChannels = [];
+
+const SQL_INIT_SCRIPT = `-- ==============================================================================
+-- SCRIPT DE INICIALIZACIÓN DE SUPABASE - COTIZADOR 3D (AMBAR & DAVO)
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS public.catalog_pieces (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    hours NUMERIC DEFAULT 0,
+    minutes NUMERIC DEFAULT 0,
+    grams NUMERIC DEFAULT 0,
+    timestamp BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()) * 1000,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.app_settings (
+    key TEXT PRIMARY KEY,
+    value JSONB NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.proformas_history (
+    id TEXT PRIMARY KEY,
+    client_name TEXT NOT NULL,
+    total NUMERIC NOT NULL,
+    date_str TEXT,
+    timestamp BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()) * 1000,
+    data JSONB NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.sales_log (
+    id TEXT PRIMARY KEY,
+    client_name TEXT NOT NULL,
+    total NUMERIC NOT NULL,
+    date_str TEXT,
+    timestamp BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()) * 1000,
+    data JSONB NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.catalog_pieces ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.proformas_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sales_log ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Acceso total a catalog_pieces" ON public.catalog_pieces;
+CREATE POLICY "Acceso total a catalog_pieces" ON public.catalog_pieces FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Acceso total a app_settings" ON public.app_settings;
+CREATE POLICY "Acceso total a app_settings" ON public.app_settings FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Acceso total a proformas_history" ON public.proformas_history;
+CREATE POLICY "Acceso total a proformas_history" ON public.proformas_history FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Acceso total a sales_log" ON public.sales_log;
+CREATE POLICY "Acceso total a sales_log" ON public.sales_log FOR ALL USING (true) WITH CHECK (true);
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.catalog_pieces;
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.app_settings;
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.proformas_history;
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.sales_log;
+  END IF;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;`;
 
 // Initialize Application
 document.addEventListener("DOMContentLoaded", () => {
   initTheme();
   setupEventListeners();
-  initFirebase();
+  setupSupabaseModal();
+  initSupabase();
   
   // Load draft proforma from local storage
   const savedDraft = localStorage.getItem("cotizador_3d_draft");
   if (savedDraft) {
-    appState.proforma = JSON.parse(savedDraft);
-    populateEditorFields();
+    try {
+      appState.proforma = JSON.parse(savedDraft);
+      populateEditorFields();
+    } catch (e) {
+      console.warn("Error cargando borrador local:", e);
+    }
   }
 
   runCalculation();
@@ -73,124 +141,263 @@ document.addEventListener("DOMContentLoaded", () => {
   window.addEventListener("resize", adjustPDFPreviewScale);
 });
 
-// Initialize Firebase & Firestore
-function initFirebase() {
-  if (typeof firebase === 'undefined') {
-    console.warn("Firebase SDK no detectado. Ejecutando en Modo Local (LocalStorage).");
-    useFirebase = false;
-    updateDBBadge(false);
+// Config helper
+function getSupabaseConfig() {
+  const savedUrl = localStorage.getItem("cotizador_3d_supabase_url");
+  const savedKey = localStorage.getItem("cotizador_3d_supabase_key");
+  return {
+    url: (savedUrl && savedUrl.trim()) ? savedUrl.trim() : DEFAULT_SUPABASE_URL,
+    key: (savedKey && savedKey.trim()) ? savedKey.trim() : DEFAULT_SUPABASE_KEY
+  };
+}
+
+// Initialize Supabase Client
+async function initSupabase() {
+  const config = getSupabaseConfig();
+  
+  const urlInput = document.getElementById("supabase-url-input");
+  const keyInput = document.getElementById("supabase-key-input");
+  if (urlInput) urlInput.value = config.url;
+  if (keyInput) keyInput.value = config.key;
+
+  if (typeof window.supabase === "undefined") {
+    console.warn("Supabase SDK no detectado. Ejecutando en Modo Local (LocalStorage).");
+    useSupabase = false;
+    updateDBBadge(false, "Modo Local");
+    updateModalAlert("error", "Librería de Supabase no cargada. Verifica tu conexión a internet.");
+    setupLocalBackupListeners();
+    return;
+  }
+
+  if (!config.url || !config.key) {
+    useSupabase = false;
+    updateDBBadge(false, "Modo Local");
+    updateModalAlert("warning", "Ingresa la URL y la Anon Key de Supabase para activar la nube.");
     setupLocalBackupListeners();
     return;
   }
 
   try {
-    firebase.initializeApp(firebaseConfig);
-    db = firebase.firestore();
-    
-    // Enable offline persistence for smooth usage
-    db.enablePersistence().catch(err => {
-      console.warn("Offline persistence failed to enable:", err.code);
-    });
+    updateDBBadge("pending", "Conectando...");
+    updateModalAlert("info", "Comprobando conexión con Supabase...");
 
-    // Test connection by fetching rates document
-    db.collection("settings").doc("rates").get()
-      .then((doc) => {
-        useFirebase = true;
-        updateDBBadge(true);
-        console.log("Firebase Firestore conectado con éxito. Sincronización en la nube activa.");
-        setupFirebaseListeners();
-      })
-      .catch((err) => {
-        console.warn("Firestore no pudo completarse (pendiente de iniciar base de datos en consola Firebase). Fallback a local. Error:", err.message);
-        useFirebase = false;
-        updateDBBadge(false);
+    supabase = window.supabase.createClient(config.url, config.key);
+
+    // Test connection by reading catalog_pieces table
+    const { data, error } = await supabase.from("catalog_pieces").select("id").limit(1);
+
+    if (error) {
+      if (error.code === "PGRST205" || (error.message && error.message.toLowerCase().includes("not find the table"))) {
+        console.warn("Supabase respondió: Falta crear las tablas en la base de datos.");
+        useSupabase = false;
+        updateDBBadge("pending", "Crear Tablas");
+        updateModalAlert("warning", "¡Conectado con Supabase! Sin embargo, aún falta crear las tablas. Haz clic en 'Copiar Código SQL' y ejecútalo en el SQL Editor de tu consola Supabase.");
+        const sqlGuide = document.getElementById("supabase-sql-guide");
+        if (sqlGuide) sqlGuide.classList.remove("hidden");
         setupLocalBackupListeners();
-      });
+        return;
+      }
+      throw error;
+    }
 
-  } catch (e) {
-    console.error("Error al inicializar Firebase:", e);
-    useFirebase = false;
-    updateDBBadge(false);
+    // Connection successful and tables exist!
+    useSupabase = true;
+    updateDBBadge(true, "Modo Nube");
+    updateModalAlert("success", "Conexión establecida. Catálogo, tarifas, historial y ventas sincronizados.");
+    const sqlGuide = document.getElementById("supabase-sql-guide");
+    if (sqlGuide) sqlGuide.classList.add("hidden");
+
+    // Load data from cloud
+    await Promise.all([
+      loadRatesFromSupabase(),
+      loadCatalogFromSupabase(),
+      loadHistoryFromSupabase(),
+      loadSalesFromSupabase()
+    ]);
+
+    setupSupabaseRealtime();
+    console.log("Supabase sincronizado correctamente.");
+
+  } catch (err) {
+    console.error("Error al conectar con Supabase:", err);
+    useSupabase = false;
+    updateDBBadge(false, "Modo Local");
+    updateModalAlert("error", "No se pudo conectar a Supabase: " + (err.message || err));
     setupLocalBackupListeners();
   }
 }
 
 // Update Database Status Badge
-function updateDBBadge(isConnected) {
+function updateDBBadge(status, text) {
   const badge = document.getElementById("db-status-badge");
+  const textEl = document.getElementById("db-status-text");
   if (!badge) return;
   
-  if (isConnected) {
+  if (status === true || status === "cloud") {
     badge.className = "status-badge cloud-badge";
-    badge.innerHTML = '<i class="fa-solid fa-cloud"></i> Modo Nube';
-    badge.title = "Compartiendo datos en la nube con Ambar y Davo en tiempo real.";
+    if (textEl) textEl.textContent = text || "Modo Nube";
+    badge.title = "Sincronizando en la nube con Supabase en tiempo real (Ambar y Davo). Haz clic para ver opciones.";
+  } else if (status === "pending") {
+    badge.className = "status-badge pending-badge";
+    if (textEl) textEl.textContent = text || "Pendiente";
+    badge.title = "Supabase requiere atención: haz clic para ver instrucciones o crear tablas.";
   } else {
     badge.className = "status-badge local-badge";
-    badge.innerHTML = '<i class="fa-solid fa-database"></i> Modo Local';
-    badge.title = "Guardando en tu navegador. Para compartir, inicia Firestore en tu consola Firebase.";
+    if (textEl) textEl.textContent = text || "Modo Local";
+    badge.title = "Guardando solo en este navegador. Haz clic para conectar con Supabase.";
   }
 }
 
-// Setup Firebase Realtime Listeners
-function setupFirebaseListeners() {
-  // 1. Listen to Rates
-  db.collection("settings").doc("rates").onSnapshot((doc) => {
-    if (doc.exists) {
-      appState.rates = doc.data();
-      document.getElementById("rate-time").value = appState.rates.time || 0.32;
-      document.getElementById("rate-material").value = appState.rates.material || 0.02;
-      document.getElementById("rate-margin").value = appState.rates.margin || 100;
+// Update Modal Alert message
+function updateModalAlert(type, message) {
+  const alertBox = document.getElementById("supabase-status-alert");
+  const msgSpan = document.getElementById("supabase-status-msg");
+  if (!alertBox || !msgSpan) return;
+
+  alertBox.className = `status-alert-box ${type}`;
+  msgSpan.textContent = message;
+
+  const icon = alertBox.querySelector("i");
+  if (icon) {
+    if (type === "success") icon.className = "fa-solid fa-circle-check";
+    else if (type === "warning") icon.className = "fa-solid fa-triangle-exclamation";
+    else if (type === "error") icon.className = "fa-solid fa-circle-xmark";
+    else icon.className = "fa-solid fa-circle-info";
+  }
+}
+
+// Realtime subscriptions across all tabs/devices
+function setupSupabaseRealtime() {
+  if (!supabase || !useSupabase) return;
+
+  try {
+    // Unsubscribe previous channels
+    supabaseChannels.forEach(ch => {
+      try { supabase.removeChannel(ch); } catch (e) {}
+    });
+    supabaseChannels = [];
+
+    const channel = supabase.channel("cotizador-3d-changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "catalog_pieces" }, () => {
+        loadCatalogFromSupabase();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "app_settings" }, () => {
+        loadRatesFromSupabase();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "proformas_history" }, () => {
+        loadHistoryFromSupabase();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "sales_log" }, () => {
+        loadSalesFromSupabase();
+      })
+      .subscribe();
+
+    supabaseChannels.push(channel);
+  } catch (e) {
+    console.warn("Realtime error:", e);
+  }
+}
+
+// Load Rates from Supabase
+async function loadRatesFromSupabase() {
+  if (!supabase || !useSupabase) return;
+  try {
+    const { data, error } = await supabase
+      .from("app_settings")
+      .select("value")
+      .eq("key", "rates")
+      .maybeSingle();
+
+    if (data && data.value) {
+      appState.rates = data.value;
+      document.getElementById("rate-time").value = appState.rates.time ?? 0.32;
+      document.getElementById("rate-material").value = appState.rates.material ?? 0.02;
+      document.getElementById("rate-margin").value = appState.rates.margin ?? 100;
       runCalculation();
       renderProforma();
     } else {
-      // Prepopulate rates in cloud if empty
-      db.collection("settings").doc("rates").set(appState.rates);
+      // Initialize rates in database if not present
+      await supabase.from("app_settings").upsert({
+        key: "rates",
+        value: appState.rates,
+        updated_at: new Date().toISOString()
+      });
     }
-  }, (error) => {
-    console.warn("Rates snapshot error:", error);
-  });
+  } catch (e) {
+    console.warn("Error cargando tarifas de Supabase:", e);
+  }
+}
 
-  // 2. Listen to Shared Pieces Catalog
-  db.collection("pieces").orderBy("timestamp", "desc").onSnapshot((querySnapshot) => {
-    appState.catalog = [];
-    querySnapshot.forEach((doc) => {
-      appState.catalog.push({
-        id: doc.id,
-        ...doc.data()
-      });
-    });
+// Load Catalog from Supabase
+async function loadCatalogFromSupabase() {
+  if (!supabase || !useSupabase) return;
+  try {
+    const { data, error } = await supabase
+      .from("catalog_pieces")
+      .select("*")
+      .order("timestamp", { ascending: false });
+
+    if (error) throw error;
+    if (data && data.length > 0) {
+      appState.catalog = data;
+    } else {
+      // Initialize with default pieces if database empty
+      const defaults = [
+        { id: "cat-1", name: "Combo: Bandeja + Maceta + León", hours: 2, minutes: 45, grams: 210, timestamp: Date.now() },
+        { id: "cat-2", name: "Caja Cartulina", hours: 0, minutes: 5, grams: 0, timestamp: Date.now() - 1000 }
+      ];
+      for (const item of defaults) {
+        await supabase.from("catalog_pieces").upsert(item);
+      }
+      appState.catalog = defaults;
+    }
+    localStorage.setItem("cotizador_3d_catalog", JSON.stringify(appState.catalog));
     renderCatalog();
-  }, (error) => {
-    console.warn("Catalog snapshot error:", error);
-  });
+  } catch (e) {
+    console.warn("Error cargando catálogo de Supabase:", e);
+  }
+}
 
-  // 3. Listen to Shared Proformas History
-  db.collection("proformas").orderBy("timestamp", "desc").onSnapshot((querySnapshot) => {
-    appState.history = [];
-    querySnapshot.forEach((doc) => {
-      appState.history.push({
-        id: doc.id,
-        ...doc.data()
-      });
-    });
-    renderHistory();
-  }, (error) => {
-    console.warn("History snapshot error:", error);
-  });
+// Load Proformas History from Supabase
+async function loadHistoryFromSupabase() {
+  if (!supabase || !useSupabase) return;
+  try {
+    const { data, error } = await supabase
+      .from("proformas_history")
+      .select("*")
+      .order("timestamp", { ascending: false })
+      .limit(50);
 
-  // 4. Listen to Shared Sales Log
-  db.collection("sales").orderBy("timestamp", "desc").onSnapshot((querySnapshot) => {
-    appState.sales = [];
-    querySnapshot.forEach((doc) => {
-      appState.sales.push({
-        id: doc.id,
-        ...doc.data()
-      });
-    });
-    renderSales();
-  }, (error) => {
-    console.warn("Sales snapshot error:", error);
-  });
+    if (error) throw error;
+    if (data) {
+      appState.history = data;
+      localStorage.setItem("cotizador_3d_history", JSON.stringify(appState.history));
+      renderHistory();
+    }
+  } catch (e) {
+    console.warn("Error cargando historial de Supabase:", e);
+  }
+}
+
+// Load Sales Log from Supabase
+async function loadSalesFromSupabase() {
+  if (!supabase || !useSupabase) return;
+  try {
+    const { data, error } = await supabase
+      .from("sales_log")
+      .select("*")
+      .order("timestamp", { ascending: false })
+      .limit(100);
+
+    if (error) throw error;
+    if (data) {
+      appState.sales = data;
+      localStorage.setItem("cotizador_3d_sales", JSON.stringify(appState.sales));
+      renderSales();
+    }
+  } catch (e) {
+    console.warn("Error cargando registro de ventas de Supabase:", e);
+  }
 }
 
 // Fallback to LocalStorage Data Loading
@@ -198,19 +405,26 @@ function setupLocalBackupListeners() {
   // Load local rates
   const savedRates = localStorage.getItem("cotizador_3d_rates");
   if (savedRates) {
-    appState.rates = JSON.parse(savedRates);
-    document.getElementById("rate-time").value = appState.rates.time || 0.32;
-    document.getElementById("rate-material").value = appState.rates.material || 0.02;
-    document.getElementById("rate-margin").value = appState.rates.margin || 100;
+    try {
+      appState.rates = JSON.parse(savedRates);
+      document.getElementById("rate-time").value = appState.rates.time ?? 0.32;
+      document.getElementById("rate-material").value = appState.rates.material ?? 0.02;
+      document.getElementById("rate-margin").value = appState.rates.margin ?? 100;
+    } catch (e) {
+      console.warn("Error cargando rates locales:", e);
+    }
   }
   runCalculation();
 
   // Load local catalog
   const savedCatalog = localStorage.getItem("cotizador_3d_catalog");
   if (savedCatalog) {
-    appState.catalog = JSON.parse(savedCatalog);
+    try {
+      appState.catalog = JSON.parse(savedCatalog);
+    } catch (e) {
+      console.warn("Error cargando catálogo local:", e);
+    }
   } else {
-    // Default items
     appState.catalog = [
       { id: "cat-1", name: "Combo: Bandeja + Maceta + León", hours: 2, minutes: 45, grams: 210, timestamp: Date.now() },
       { id: "cat-2", name: "Caja Cartulina", hours: 0, minutes: 5, grams: 0, timestamp: Date.now() - 1000 }
@@ -222,25 +436,39 @@ function setupLocalBackupListeners() {
   // Load local history
   const savedHistory = localStorage.getItem("cotizador_3d_history");
   if (savedHistory) {
-    appState.history = JSON.parse(savedHistory);
+    try {
+      appState.history = JSON.parse(savedHistory);
+    } catch (e) {
+      console.warn("Error cargando historial local:", e);
+    }
   }
   renderHistory();
 
   // Load local sales
   const savedSales = localStorage.getItem("cotizador_3d_sales");
   if (savedSales) {
-    appState.sales = JSON.parse(savedSales);
+    try {
+      appState.sales = JSON.parse(savedSales);
+    } catch (e) {
+      console.warn("Error cargando ventas locales:", e);
+    }
   }
   renderSales();
 }
 
 // Save Current Rates
-function saveRates() {
-  if (useFirebase && db) {
-    db.collection("settings").doc("rates").set(appState.rates)
-      .catch(err => console.error("Error saving rates to Firebase:", err));
-  } else {
-    localStorage.setItem("cotizador_3d_rates", JSON.stringify(appState.rates));
+async function saveRates() {
+  localStorage.setItem("cotizador_3d_rates", JSON.stringify(appState.rates));
+  if (useSupabase && supabase) {
+    try {
+      await supabase.from("app_settings").upsert({
+        key: "rates",
+        value: appState.rates,
+        updated_at: new Date().toISOString()
+      });
+    } catch (err) {
+      console.error("Error guardando tarifas en Supabase:", err);
+    }
   }
 }
 
@@ -405,7 +633,7 @@ function deleteItem(itemId) {
 }
 
 // Save Current Calculator Settings to Pieces Catalog
-function savePieceToCatalog() {
+async function savePieceToCatalog() {
   const pieceName = document.getElementById("piece-name").value.trim();
   const hours = Math.max(0, parseInt(document.getElementById("print-hours").value) || 0);
   const minutes = Math.max(0, parseInt(document.getElementById("print-minutes").value) || 0);
@@ -416,7 +644,9 @@ function savePieceToCatalog() {
     return;
   }
 
+  const pieceId = "cat-" + Date.now();
   const pieceData = {
+    id: pieceId,
     name: pieceName,
     hours: hours,
     minutes: minutes,
@@ -424,15 +654,20 @@ function savePieceToCatalog() {
     timestamp: Date.now()
   };
 
-  if (useFirebase && db) {
-    db.collection("pieces").add(pieceData)
-      .then(() => alert("Pieza guardada exitosamente en el catálogo compartido."))
-      .catch(err => alert("Error al guardar en Firebase: " + err.message));
+  appState.catalog.unshift(pieceData);
+  localStorage.setItem("cotizador_3d_catalog", JSON.stringify(appState.catalog));
+  renderCatalog();
+
+  if (useSupabase && supabase) {
+    try {
+      const { error } = await supabase.from("catalog_pieces").insert(pieceData);
+      if (error) throw error;
+      alert("Pieza guardada exitosamente en la nube (Supabase).");
+    } catch (err) {
+      console.error("Error guardando pieza en Supabase:", err);
+      alert("Guardada localmente (Error en la nube: " + err.message + ")");
+    }
   } else {
-    pieceData.id = "cat-" + Date.now();
-    appState.catalog.unshift(pieceData);
-    localStorage.setItem("cotizador_3d_catalog", JSON.stringify(appState.catalog));
-    renderCatalog();
     alert("Pieza guardada localmente en tu catálogo.");
   }
 }
@@ -450,15 +685,20 @@ function loadPieceFromCatalog(pieceId) {
 }
 
 // Delete Piece from Catalog
-function deletePieceFromCatalog(pieceId) {
+async function deletePieceFromCatalog(pieceId) {
   if (confirm("¿Estás seguro de que deseas eliminar esta pieza del catálogo?")) {
-    if (useFirebase && db) {
-      db.collection("pieces").doc(pieceId).delete()
-        .catch(err => alert("Error al eliminar de Firebase: " + err.message));
-    } else {
-      appState.catalog = appState.catalog.filter(p => p.id !== pieceId);
-      localStorage.setItem("cotizador_3d_catalog", JSON.stringify(appState.catalog));
-      renderCatalog();
+    appState.catalog = appState.catalog.filter(p => p.id !== pieceId);
+    localStorage.setItem("cotizador_3d_catalog", JSON.stringify(appState.catalog));
+    renderCatalog();
+
+    if (useSupabase && supabase) {
+      try {
+        const { error } = await supabase.from("catalog_pieces").delete().eq("id", pieceId);
+        if (error) throw error;
+      } catch (err) {
+        console.error("Error eliminando pieza de Supabase:", err);
+        alert("Error al eliminar en la nube: " + err.message);
+      }
     }
   }
 }
@@ -583,10 +823,12 @@ function renderProforma() {
         <td class="col-description">${item.description}</td>
         <td class="col-unit">${formatCurrency(item.unitPrice)}</td>
         <td class="col-total">
-          ${formatCurrency(item.totalPrice)}
-          <button class="row-action-btn" title="Eliminar ítem" data-id="${item.id}">
-            <i class="fa-solid fa-times"></i>
-          </button>
+          <div class="total-cell-inner">
+            <span class="total-cell-val">${formatCurrency(item.totalPrice)}</span>
+            <button class="row-action-btn" title="Eliminar ítem de la proforma" data-id="${item.id}" type="button" aria-label="Eliminar ítem">
+              <i class="fa-solid fa-trash-can"></i>
+            </button>
+          </div>
         </td>
       `;
       tbody.appendChild(tr);
@@ -619,8 +861,58 @@ function renderProforma() {
     });
   });
 
+  renderProformaItemsManager();
   saveDraft();
   adjustPDFPreviewScale();
+}
+
+// Render Items Manager inside Editor Card
+function renderProformaItemsManager() {
+  const container = document.getElementById("proforma-items-list");
+  const countBadge = document.getElementById("proforma-items-count");
+  if (!container) return;
+
+  if (countBadge) {
+    countBadge.textContent = appState.proforma.items.length;
+  }
+
+  container.innerHTML = "";
+
+  if (appState.proforma.items.length === 0) {
+    container.innerHTML = `
+      <div style="text-align: center; color: var(--text-muted); padding: 14px; font-size: 12.5px;">
+        <i class="fa-solid fa-box-open" style="margin-right: 6px;"></i> No hay artículos agregados todavía.
+      </div>
+    `;
+    return;
+  }
+
+  appState.proforma.items.forEach(item => {
+    const row = document.createElement("div");
+    row.className = "proforma-item-row";
+    row.innerHTML = `
+      <div class="proforma-item-info">
+        <span class="proforma-item-qty">${item.qty}x</span>
+        <span class="proforma-item-name" title="${item.description}">${item.description}</span>
+      </div>
+      <div class="proforma-item-right">
+        <span class="proforma-item-total">${formatCurrency(item.totalPrice)}</span>
+        <button class="proforma-item-del-btn" title="Eliminar ítem" data-id="${item.id}" type="button" aria-label="Eliminar ítem">
+          <i class="fa-solid fa-trash-can"></i>
+        </button>
+      </div>
+    `;
+    container.appendChild(row);
+  });
+
+  // Attach delete events for the manager list
+  container.querySelectorAll(".proforma-item-del-btn").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const itemId = btn.getAttribute("data-id");
+      deleteItem(itemId);
+    });
+  });
 }
 
 // Clear Proforma Builder
@@ -646,7 +938,7 @@ function clearProforma() {
 }
 
 // Save Proforma to History list
-function saveProformaToHistory() {
+async function saveProformaToHistory() {
   if (appState.proforma.items.length === 0) {
     alert("No puedes guardar una proforma vacía.");
     return;
@@ -663,34 +955,42 @@ function saveProformaToHistory() {
   });
 
   const proformaData = JSON.parse(JSON.stringify(appState.proforma));
+  const record = {
+    id: "prof-" + timestamp,
+    client_name: client,
+    clientName: client,
+    total: total,
+    date_str: dateStr,
+    date: dateStr,
+    timestamp: timestamp,
+    data: proformaData
+  };
 
-  if (useFirebase && db) {
-    db.collection("proformas").add({
-      clientName: client,
-      total: total,
-      date: dateStr,
-      timestamp: timestamp,
-      data: proformaData
-    })
-    .then(() => alert("Proforma guardada exitosamente en la nube."))
-    .catch(err => alert("Error al guardar proforma en Firebase: " + err.message));
-  } else {
-    const record = {
-      id: "prof-" + timestamp,
-      date: dateStr,
-      timestamp: timestamp,
-      clientName: client,
-      total: total,
-      data: proformaData
-    };
+  appState.history.unshift(record);
+  if (appState.history.length > 50) {
+    appState.history.pop();
+  }
 
-    appState.history.unshift(record);
-    if (appState.history.length > 20) {
-      appState.history.pop();
+  localStorage.setItem("cotizador_3d_history", JSON.stringify(appState.history));
+  renderHistory();
+
+  if (useSupabase && supabase) {
+    try {
+      const { error } = await supabase.from("proformas_history").insert({
+        id: record.id,
+        client_name: client,
+        total: total,
+        date_str: dateStr,
+        timestamp: timestamp,
+        data: proformaData
+      });
+      if (error) throw error;
+      alert("Proforma guardada exitosamente en la nube (Supabase).");
+    } catch (err) {
+      console.error("Error al guardar proforma en Supabase:", err);
+      alert("Proforma guardada localmente (Error en la nube: " + err.message + ")");
     }
-
-    localStorage.setItem("cotizador_3d_history", JSON.stringify(appState.history));
-    renderHistory();
+  } else {
     alert("Proforma guardada localmente en tu historial.");
   }
 }
@@ -707,15 +1007,20 @@ function loadProformaFromHistory(historyId) {
 }
 
 // Delete Proforma from History
-function deleteProformaFromHistory(historyId) {
+async function deleteProformaFromHistory(historyId) {
   if (confirm("¿Seguro que deseas eliminar esta proforma del historial?")) {
-    if (useFirebase && db) {
-      db.collection("proformas").doc(historyId).delete()
-        .catch(err => alert("Error al eliminar proforma de Firebase: " + err.message));
-    } else {
-      appState.history = appState.history.filter(item => item.id !== historyId);
-      localStorage.setItem("cotizador_3d_history", JSON.stringify(appState.history));
-      renderHistory();
+    appState.history = appState.history.filter(item => item.id !== historyId);
+    localStorage.setItem("cotizador_3d_history", JSON.stringify(appState.history));
+    renderHistory();
+
+    if (useSupabase && supabase) {
+      try {
+        const { error } = await supabase.from("proformas_history").delete().eq("id", historyId);
+        if (error) throw error;
+      } catch (err) {
+        console.error("Error al eliminar proforma de Supabase:", err);
+        alert("Error al eliminar en la nube: " + err.message);
+      }
     }
   }
 }
@@ -723,6 +1028,7 @@ function deleteProformaFromHistory(historyId) {
 // Render History UI list
 function renderHistory() {
   const container = document.getElementById("history-list");
+  if (!container) return;
   container.innerHTML = "";
 
   if (appState.history.length === 0) {
@@ -738,10 +1044,14 @@ function renderHistory() {
   appState.history.forEach(item => {
     const div = document.createElement("div");
     div.className = "history-item";
+    const client = item.client_name || item.clientName || "Cliente";
+    const date = item.date_str || item.date || "-";
+    const itemCount = item.data?.items?.length || 0;
+
     div.innerHTML = `
       <div class="hist-info">
-        <span class="hist-client">${item.clientName}</span>
-        <span class="hist-meta">${item.date} • ${item.data.items.length} ítems</span>
+        <span class="hist-client">${client}</span>
+        <span class="hist-meta">${date} • ${itemCount} ítems</span>
       </div>
       <div class="hist-actions">
         <span class="hist-total">${formatCurrency(item.total)}</span>
@@ -925,7 +1235,7 @@ function adjustPDFPreviewScale() {
 }
 
 // Register Sale (Concretar Venta)
-function registerSale() {
+async function registerSale() {
   if (appState.proforma.items.length === 0) {
     alert("No puedes registrar una venta sin artículos.");
     return;
@@ -942,44 +1252,57 @@ function registerSale() {
   });
 
   const proformaData = JSON.parse(JSON.stringify(appState.proforma));
+  const record = {
+    id: "sale-" + timestamp,
+    client_name: client,
+    clientName: client,
+    total: total,
+    date_str: dateStr,
+    date: dateStr,
+    timestamp: timestamp,
+    data: proformaData
+  };
 
-  if (useFirebase && db) {
-    db.collection("sales").add({
-      clientName: client,
-      total: total,
-      date: dateStr,
-      timestamp: timestamp,
-      data: proformaData
-    })
-    .then(() => alert("Venta registrada exitosamente en la nube."))
-    .catch(err => alert("Error al registrar venta en Firebase: " + err.message));
+  appState.sales.unshift(record);
+  localStorage.setItem("cotizador_3d_sales", JSON.stringify(appState.sales));
+  renderSales();
+
+  if (useSupabase && supabase) {
+    try {
+      const { error } = await supabase.from("sales_log").insert({
+        id: record.id,
+        client_name: client,
+        total: total,
+        date_str: dateStr,
+        timestamp: timestamp,
+        data: proformaData
+      });
+      if (error) throw error;
+      alert("¡Venta registrada exitosamente en la nube (Supabase)!");
+    } catch (err) {
+      console.error("Error al registrar venta en Supabase:", err);
+      alert("Venta registrada localmente (Error en la nube: " + err.message + ")");
+    }
   } else {
-    const record = {
-      id: "sale-" + timestamp,
-      date: dateStr,
-      timestamp: timestamp,
-      clientName: client,
-      total: total,
-      data: proformaData
-    };
-
-    appState.sales.unshift(record);
-    localStorage.setItem("cotizador_3d_sales", JSON.stringify(appState.sales));
-    renderSales();
     alert("Venta registrada localmente en tu registro de ventas.");
   }
 }
 
 // Delete Sale from Log
-function deleteSale(saleId) {
+async function deleteSale(saleId) {
   if (confirm("¿Estás seguro de que deseas eliminar esta venta registrada?")) {
-    if (useFirebase && db) {
-      db.collection("sales").doc(saleId).delete()
-        .catch(err => alert("Error al eliminar venta de Firebase: " + err.message));
-    } else {
-      appState.sales = appState.sales.filter(item => item.id !== saleId);
-      localStorage.setItem("cotizador_3d_sales", JSON.stringify(appState.sales));
-      renderSales();
+    appState.sales = appState.sales.filter(item => item.id !== saleId);
+    localStorage.setItem("cotizador_3d_sales", JSON.stringify(appState.sales));
+    renderSales();
+
+    if (useSupabase && supabase) {
+      try {
+        const { error } = await supabase.from("sales_log").delete().eq("id", saleId);
+        if (error) throw error;
+      } catch (err) {
+        console.error("Error al eliminar venta en Supabase:", err);
+        alert("Error al eliminar venta en la nube: " + err.message);
+      }
     }
   }
 }
@@ -988,7 +1311,6 @@ function deleteSale(saleId) {
 function renderSales() {
   const container = document.getElementById("sales-list");
   if (!container) return;
-  
   container.innerHTML = "";
 
   if (appState.sales.length === 0) {
@@ -1004,10 +1326,14 @@ function renderSales() {
   appState.sales.forEach(item => {
     const div = document.createElement("div");
     div.className = "sales-item";
+    const client = item.client_name || item.clientName || "Cliente";
+    const date = item.date_str || item.date || "-";
+    const itemCount = item.data?.items?.length || 0;
+
     div.innerHTML = `
       <div class="sale-info">
-        <span class="sale-client">${item.clientName}</span>
-        <span class="sale-meta">${item.date} • ${item.data.items.length} ítems</span>
+        <span class="sale-client">${client}</span>
+        <span class="sale-meta">${date} • ${itemCount} ítems</span>
       </div>
       <div class="sale-actions">
         <span class="sale-total">${formatCurrency(item.total)}</span>
@@ -1046,5 +1372,74 @@ function loadSaleDetails(saleId) {
     populateEditorFields();
     saveDraft();
     renderProforma();
+  }
+}
+
+// Setup Supabase Modal & Dialog Handlers
+function setupSupabaseModal() {
+  const badgeBtn = document.getElementById("db-status-badge");
+  const modal = document.getElementById("supabase-modal");
+  const closeBtn = document.getElementById("close-supabase-modal");
+  const closeLocalBtn = document.getElementById("btn-use-local-only");
+  const reconnectBtn = document.getElementById("btn-reconnect-supabase");
+  const copySqlBtn = document.getElementById("copy-sql-btn");
+
+  if (!modal) return;
+
+  if (badgeBtn) {
+    badgeBtn.addEventListener("click", () => {
+      modal.classList.remove("hidden");
+    });
+  }
+
+  const closeModal = () => modal.classList.add("hidden");
+  if (closeBtn) closeBtn.addEventListener("click", closeModal);
+  if (closeLocalBtn) closeLocalBtn.addEventListener("click", closeModal);
+
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) closeModal();
+  });
+
+  if (reconnectBtn) {
+    reconnectBtn.addEventListener("click", async () => {
+      const urlInput = document.getElementById("supabase-url-input");
+      const keyInput = document.getElementById("supabase-key-input");
+      const newUrl = urlInput ? urlInput.value.trim() : "";
+      const newKey = keyInput ? keyInput.value.trim() : "";
+
+      if (!newUrl || !newKey) {
+        alert("Por favor ingresa tanto la URL como la Clave de Supabase.");
+        return;
+      }
+
+      localStorage.setItem("cotizador_3d_supabase_url", newUrl);
+      localStorage.setItem("cotizador_3d_supabase_key", newKey);
+
+      reconnectBtn.disabled = true;
+      reconnectBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Conectando...';
+
+      await initSupabase();
+
+      reconnectBtn.disabled = false;
+      reconnectBtn.innerHTML = '<i class="fa-solid fa-rotate"></i> Guardar y Conectar';
+    });
+  }
+
+  if (copySqlBtn) {
+    copySqlBtn.addEventListener("click", () => {
+      navigator.clipboard.writeText(SQL_INIT_SCRIPT).then(() => {
+        const originalText = copySqlBtn.innerHTML;
+        copySqlBtn.innerHTML = '<i class="fa-solid fa-check"></i> ¡Copiado al Portapapeles!';
+        copySqlBtn.style.backgroundColor = '#166534';
+        copySqlBtn.style.color = '#ffffff';
+        setTimeout(() => {
+          copySqlBtn.innerHTML = originalText;
+          copySqlBtn.style.backgroundColor = '';
+          copySqlBtn.style.color = '';
+        }, 2500);
+      }).catch(err => {
+        alert("No se pudo copiar automáticamente. Por favor abre el archivo supabase_schema.sql en el proyecto.");
+      });
+    });
   }
 }

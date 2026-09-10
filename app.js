@@ -43,7 +43,7 @@ let appState = {
 const DEFAULT_SUPABASE_URL = "https://xlprhfkbvcllghlucuhl.supabase.co";
 const DEFAULT_SUPABASE_KEY = "sb_publishable_1c11IYmO_8ezwBw_uyH_tQ_aj0jydqE";
 
-let supabase = null;
+let supabaseClient = null;
 let useSupabase = false;
 let supabaseChannels = [];
 
@@ -181,10 +181,10 @@ async function initSupabase() {
     updateDBBadge("pending", "Conectando...");
     updateModalAlert("info", "Comprobando conexión con Supabase...");
 
-    supabase = window.supabase.createClient(config.url, config.key);
+    supabaseClient = window.supabase.createClient(config.url, config.key);
 
     // Test connection by reading catalog_pieces table
-    const { data, error } = await supabase.from("catalog_pieces").select("id").limit(1);
+    const { data, error } = await supabaseClient.from("catalog_pieces").select("id").limit(1);
 
     if (error) {
       if (error.code === "PGRST205" || (error.message && error.message.toLowerCase().includes("not find the table"))) {
@@ -268,16 +268,16 @@ function updateModalAlert(type, message) {
 
 // Realtime subscriptions across all tabs/devices
 function setupSupabaseRealtime() {
-  if (!supabase || !useSupabase) return;
+  if (!supabaseClient || !useSupabase) return;
 
   try {
     // Unsubscribe previous channels
     supabaseChannels.forEach(ch => {
-      try { supabase.removeChannel(ch); } catch (e) {}
+      try { supabaseClient.removeChannel(ch); } catch (e) {}
     });
     supabaseChannels = [];
 
-    const channel = supabase.channel("cotizador-3d-changes")
+    const channel = supabaseClient.channel("cotizador-3d-changes")
       .on("postgres_changes", { event: "*", schema: "public", table: "catalog_pieces" }, () => {
         loadCatalogFromSupabase();
       })
@@ -300,9 +300,9 @@ function setupSupabaseRealtime() {
 
 // Load Rates from Supabase
 async function loadRatesFromSupabase() {
-  if (!supabase || !useSupabase) return;
+  if (!supabaseClient || !useSupabase) return;
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from("app_settings")
       .select("value")
       .eq("key", "rates")
@@ -317,7 +317,7 @@ async function loadRatesFromSupabase() {
       renderProforma();
     } else {
       // Initialize rates in database if not present
-      await supabase.from("app_settings").upsert({
+      await supabaseClient.from("app_settings").upsert({
         key: "rates",
         value: appState.rates,
         updated_at: new Date().toISOString()
@@ -330,9 +330,9 @@ async function loadRatesFromSupabase() {
 
 // Load Catalog from Supabase
 async function loadCatalogFromSupabase() {
-  if (!supabase || !useSupabase) return;
+  if (!supabaseClient || !useSupabase) return;
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from("catalog_pieces")
       .select("*")
       .order("timestamp", { ascending: false });
@@ -347,7 +347,7 @@ async function loadCatalogFromSupabase() {
         { id: "cat-2", name: "Caja Cartulina", hours: 0, minutes: 5, grams: 0, timestamp: Date.now() - 1000 }
       ];
       for (const item of defaults) {
-        await supabase.from("catalog_pieces").upsert(item);
+        await supabaseClient.from("catalog_pieces").upsert(item);
       }
       appState.catalog = defaults;
     }
@@ -360,9 +360,9 @@ async function loadCatalogFromSupabase() {
 
 // Load Proformas History from Supabase
 async function loadHistoryFromSupabase() {
-  if (!supabase || !useSupabase) return;
+  if (!supabaseClient || !useSupabase) return;
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from("proformas_history")
       .select("*")
       .order("timestamp", { ascending: false })
@@ -381,9 +381,9 @@ async function loadHistoryFromSupabase() {
 
 // Load Sales Log from Supabase
 async function loadSalesFromSupabase() {
-  if (!supabase || !useSupabase) return;
+  if (!supabaseClient || !useSupabase) return;
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from("sales_log")
       .select("*")
       .order("timestamp", { ascending: false })
@@ -459,9 +459,9 @@ function setupLocalBackupListeners() {
 // Save Current Rates
 async function saveRates() {
   localStorage.setItem("cotizador_3d_rates", JSON.stringify(appState.rates));
-  if (useSupabase && supabase) {
+  if (useSupabase && supabaseClient) {
     try {
-      await supabase.from("app_settings").upsert({
+      await supabaseClient.from("app_settings").upsert({
         key: "rates",
         value: appState.rates,
         updated_at: new Date().toISOString()
@@ -658,9 +658,9 @@ async function savePieceToCatalog() {
   localStorage.setItem("cotizador_3d_catalog", JSON.stringify(appState.catalog));
   renderCatalog();
 
-  if (useSupabase && supabase) {
+  if (useSupabase && supabaseClient) {
     try {
-      const { error } = await supabase.from("catalog_pieces").insert(pieceData);
+      const { error } = await supabaseClient.from("catalog_pieces").insert(pieceData);
       if (error) throw error;
       alert("Pieza guardada exitosamente en la nube (Supabase).");
     } catch (err) {
@@ -691,9 +691,9 @@ async function deletePieceFromCatalog(pieceId) {
     localStorage.setItem("cotizador_3d_catalog", JSON.stringify(appState.catalog));
     renderCatalog();
 
-    if (useSupabase && supabase) {
+    if (useSupabase && supabaseClient) {
       try {
-        const { error } = await supabase.from("catalog_pieces").delete().eq("id", pieceId);
+        const { error } = await supabaseClient.from("catalog_pieces").delete().eq("id", pieceId);
         if (error) throw error;
       } catch (err) {
         console.error("Error eliminando pieza de Supabase:", err);
@@ -974,9 +974,9 @@ async function saveProformaToHistory() {
   localStorage.setItem("cotizador_3d_history", JSON.stringify(appState.history));
   renderHistory();
 
-  if (useSupabase && supabase) {
+  if (useSupabase && supabaseClient) {
     try {
-      const { error } = await supabase.from("proformas_history").insert({
+      const { error } = await supabaseClient.from("proformas_history").insert({
         id: record.id,
         client_name: client,
         total: total,
@@ -1013,9 +1013,9 @@ async function deleteProformaFromHistory(historyId) {
     localStorage.setItem("cotizador_3d_history", JSON.stringify(appState.history));
     renderHistory();
 
-    if (useSupabase && supabase) {
+    if (useSupabase && supabaseClient) {
       try {
-        const { error } = await supabase.from("proformas_history").delete().eq("id", historyId);
+        const { error } = await supabaseClient.from("proformas_history").delete().eq("id", historyId);
         if (error) throw error;
       } catch (err) {
         console.error("Error al eliminar proforma de Supabase:", err);
@@ -1267,9 +1267,9 @@ async function registerSale() {
   localStorage.setItem("cotizador_3d_sales", JSON.stringify(appState.sales));
   renderSales();
 
-  if (useSupabase && supabase) {
+  if (useSupabase && supabaseClient) {
     try {
-      const { error } = await supabase.from("sales_log").insert({
+      const { error } = await supabaseClient.from("sales_log").insert({
         id: record.id,
         client_name: client,
         total: total,
@@ -1295,9 +1295,9 @@ async function deleteSale(saleId) {
     localStorage.setItem("cotizador_3d_sales", JSON.stringify(appState.sales));
     renderSales();
 
-    if (useSupabase && supabase) {
+    if (useSupabase && supabaseClient) {
       try {
-        const { error } = await supabase.from("sales_log").delete().eq("id", saleId);
+        const { error } = await supabaseClient.from("sales_log").delete().eq("id", saleId);
         if (error) throw error;
       } catch (err) {
         console.error("Error al eliminar venta en Supabase:", err);

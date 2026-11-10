@@ -1,5 +1,6 @@
 // Core Application State
 let appState = {
+  currentProformaId: null, // Tracks if we are editing an existing saved proforma
   rates: {
     material: 0.02,  // per gram
     time: 0.32,      // per hour
@@ -7,37 +8,107 @@ let appState = {
   },
   catalog: [], // Shared pieces catalog
   proforma: {
-    clientName: "Belén Torres",
+    clientName: "",
     clientAttention: "Ambar",
-    clientPhone: "0987363300",
+    clientPhone: "",
     clientAddress: "",
     clientEmail: "",
     clientOthers: "",
     paymentMethod: "Transferencia",
-    deliveryDate: "23 de junio",
-    discount: 5.00,
-    notes: `10 bandejas joyeros, color negro\n10 Leones, color beige\n10 Macetas, color blanco hueso + suculentas\n10 Cajas Cartulina`,
-    items: [
-      // Pre-populate with items from the user's reference image for a great first impression!
-      {
-        id: "init-1",
-        qty: 10,
-        description: "Combo: Bandeja + Maceta + León",
-        unitPrice: 10.00,
-        totalPrice: 100.00
-      },
-      {
-        id: "init-2",
-        qty: 10,
-        description: "Cajas cartulina",
-        unitPrice: 0.75,
-        totalPrice: 7.50
-      }
-    ]
+    deliveryDate: "",
+    discount: 0,
+    discountType: "fixed",
+    notes: "",
+    items: []
   },
   history: [],
   sales: [] // List of completed sales
 };
+
+// Utility: Escape HTML for safe rendering
+function escapeHtml(str) {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+// Toast Notifications System
+function showToast(message, type = "success") {
+  let container = document.getElementById("toast-container");
+  if (!container) {
+    container = document.createElement("div");
+    container.id = "toast-container";
+    container.className = "toast-container";
+    document.body.appendChild(container);
+  }
+
+  const toast = document.createElement("div");
+  toast.className = `toast-item toast-${type}`;
+
+  let icon = "fa-circle-check";
+  if (type === "info") icon = "fa-circle-info";
+  if (type === "warning") icon = "fa-triangle-exclamation";
+  if (type === "error") icon = "fa-circle-xmark";
+
+  toast.innerHTML = `<i class="fa-solid ${icon}"></i><span>${message}</span>`;
+  container.appendChild(toast);
+
+  setTimeout(() => toast.classList.add("toast-show"), 10);
+  setTimeout(() => {
+    toast.classList.remove("toast-show");
+    setTimeout(() => toast.remove(), 300);
+  }, 3500);
+}
+
+// Helper: Calculate single piece price with current rates
+function calculatePiecePrice(hours, minutes, grams) {
+  const h = parseFloat(hours) || 0;
+  const m = parseFloat(minutes) || 0;
+  const g = parseFloat(grams) || 0;
+  const totalHours = h + (m / 60);
+  const timeCost = totalHours * (appState.rates?.time || 0.32);
+  const materialCost = g * (appState.rates?.material || 0.02);
+  const prodCost = timeCost + materialCost;
+  return prodCost * (1 + ((appState.rates?.margin || 100) / 100));
+}
+
+// Update Active Proforma Status Pill (New vs Editing)
+function updateProformaStatusBadge() {
+  const badge = document.getElementById("proforma-mode-badge");
+  const btnNew = document.getElementById("btn-start-new-proforma");
+  const saveBtn = document.getElementById("save-proforma-btn");
+  const saveAsNewBtn = document.getElementById("save-as-new-proforma-btn");
+
+  if (appState.currentProformaId) {
+    const existing = appState.history.find(h => h.id === appState.currentProformaId);
+    const clientName = existing?.client_name || appState.proforma.clientName || "Guardada";
+    if (badge) {
+      badge.className = "mode-badge editing-mode";
+      badge.innerHTML = `<i class="fa-solid fa-pen-to-square"></i> Editando: <strong>${escapeHtml(clientName)}</strong>`;
+    }
+    if (btnNew) btnNew.classList.remove("hidden");
+    if (saveBtn) {
+      saveBtn.innerHTML = `<i class="fa-solid fa-cloud-arrow-up"></i> Actualizar Proforma`;
+      saveBtn.title = `Guarda los cambios en la proforma guardada de ${clientName}`;
+    }
+    if (saveAsNewBtn) saveAsNewBtn.classList.remove("hidden");
+  } else {
+    if (badge) {
+      badge.className = "mode-badge new-mode";
+      badge.innerHTML = `<i class="fa-solid fa-sparkles"></i> Nueva Proforma`;
+    }
+    if (btnNew) btnNew.classList.add("hidden");
+    if (saveBtn) {
+      saveBtn.innerHTML = `<i class="fa-solid fa-floppy-disk"></i> Guardar Historial`;
+      saveBtn.title = "Guardar esta proforma en el historial y en Supabase";
+    }
+    if (saveAsNewBtn) saveAsNewBtn.classList.add("hidden");
+  }
+}
 
 // Supabase Configuration & State
 const DEFAULT_SUPABASE_URL = "https://xlprhfkbvcllghlucuhl.supabase.co";
@@ -124,6 +195,10 @@ document.addEventListener("DOMContentLoaded", () => {
   
   // Load draft proforma from local storage
   const savedDraft = localStorage.getItem("cotizador_3d_draft");
+  const savedCurrentId = localStorage.getItem("cotizador_3d_current_id");
+  if (savedCurrentId) {
+    appState.currentProformaId = savedCurrentId;
+  }
   if (savedDraft) {
     try {
       appState.proforma = JSON.parse(savedDraft);
@@ -131,8 +206,12 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (e) {
       console.warn("Error cargando borrador local:", e);
     }
+  } else {
+    // If no draft exists, start clean
+    populateEditorFields();
   }
 
+  updateProformaStatusBadge();
   runCalculation();
   renderProforma();
   
@@ -475,21 +554,26 @@ async function saveRates() {
 // Save Current Proforma Draft
 function saveDraft() {
   localStorage.setItem("cotizador_3d_draft", JSON.stringify(appState.proforma));
+  if (appState.currentProformaId) {
+    localStorage.setItem("cotizador_3d_current_id", appState.currentProformaId);
+  } else {
+    localStorage.removeItem("cotizador_3d_current_id");
+  }
 }
 
 // Populate Editor Inputs
 function populateEditorFields() {
-  document.getElementById("client-name").value = appState.proforma.clientName;
-  document.getElementById("client-attention").value = appState.proforma.clientAttention;
-  document.getElementById("client-phone").value = appState.proforma.clientPhone;
-  document.getElementById("client-address").value = appState.proforma.clientAddress;
-  document.getElementById("client-email").value = appState.proforma.clientEmail;
-  document.getElementById("client-others").value = appState.proforma.clientOthers;
-  document.getElementById("payment-method").value = appState.proforma.paymentMethod;
-  document.getElementById("delivery-date").value = appState.proforma.deliveryDate;
-  document.getElementById("proforma-discount").value = appState.proforma.discount;
+  document.getElementById("client-name").value = appState.proforma.clientName || "";
+  document.getElementById("client-attention").value = appState.proforma.clientAttention || "";
+  document.getElementById("client-phone").value = appState.proforma.clientPhone || "";
+  document.getElementById("client-address").value = appState.proforma.clientAddress || "";
+  document.getElementById("client-email").value = appState.proforma.clientEmail || "";
+  document.getElementById("client-others").value = appState.proforma.clientOthers || "";
+  document.getElementById("payment-method").value = appState.proforma.paymentMethod || "Transferencia";
+  document.getElementById("delivery-date").value = appState.proforma.deliveryDate || "";
+  document.getElementById("proforma-discount").value = appState.proforma.discount || 0;
   document.getElementById("discount-type").value = appState.proforma.discountType || "fixed";
-  document.getElementById("proforma-notes").value = appState.proforma.notes;
+  document.getElementById("proforma-notes").value = appState.proforma.notes || "";
 }
 
 // Theme Logic
@@ -640,11 +724,17 @@ async function savePieceToCatalog() {
   const grams = Math.max(0, parseFloat(document.getElementById("print-grams").value) || 0);
 
   if (!pieceName) {
-    alert("Por favor ingresa un nombre para la pieza antes de guardarla en el catálogo.");
+    showToast("Por favor ingresa un nombre para la pieza.", "warning");
     return;
   }
 
-  const pieceId = "cat-" + Date.now();
+  // Check if piece with same name already exists to update it
+  const existingIdx = appState.catalog.findIndex(p => p.name.toLowerCase() === pieceName.toLowerCase());
+  let pieceId = "cat-" + Date.now();
+  if (existingIdx > -1) {
+    pieceId = appState.catalog[existingIdx].id;
+  }
+
   const pieceData = {
     id: pieceId,
     name: pieceName,
@@ -654,25 +744,61 @@ async function savePieceToCatalog() {
     timestamp: Date.now()
   };
 
-  appState.catalog.unshift(pieceData);
+  if (existingIdx > -1) {
+    appState.catalog[existingIdx] = pieceData;
+  } else {
+    appState.catalog.unshift(pieceData);
+  }
+
   localStorage.setItem("cotizador_3d_catalog", JSON.stringify(appState.catalog));
   renderCatalog();
 
   if (useSupabase && supabaseClient) {
     try {
-      const { error } = await supabaseClient.from("catalog_pieces").insert(pieceData);
+      const { error } = await supabaseClient.from("catalog_pieces").upsert(pieceData);
       if (error) throw error;
-      alert("Pieza guardada exitosamente en la nube (Supabase).");
+      showToast(`✅ Pieza "${pieceName}" guardada en la nube (Supabase)`, "success");
     } catch (err) {
       console.error("Error guardando pieza en Supabase:", err);
-      alert("Guardada localmente (Error en la nube: " + err.message + ")");
+      showToast(`Pieza guardada localmente (Error en nube: ${err.message})`, "warning");
     }
   } else {
-    alert("Pieza guardada localmente en tu catálogo.");
+    showToast(`Pieza "${pieceName}" guardada en tu catálogo local`, "success");
   }
 }
 
-// Load Piece from Catalog
+// Directly add a Catalog piece to current proforma line items
+function addPieceToProformaDirect(pieceId) {
+  const piece = appState.catalog.find(p => p.id === pieceId);
+  if (!piece) return;
+
+  const qtyInput = document.getElementById("piece-qty");
+  const qty = Math.max(1, parseInt(qtyInput?.value) || 1);
+  const unitPrice = calculatePiecePrice(piece.hours, piece.minutes, piece.grams);
+
+  const existingIdx = appState.proforma.items.findIndex(
+    item => item.description.toLowerCase() === piece.name.toLowerCase() && Math.abs(item.unitPrice - unitPrice) < 0.02
+  );
+
+  if (existingIdx > -1) {
+    appState.proforma.items[existingIdx].qty += qty;
+    appState.proforma.items[existingIdx].totalPrice = appState.proforma.items[existingIdx].qty * appState.proforma.items[existingIdx].unitPrice;
+  } else {
+    appState.proforma.items.push({
+      id: "item-" + Date.now() + "-" + Math.floor(Math.random() * 1000),
+      qty: qty,
+      description: piece.name,
+      unitPrice: unitPrice,
+      totalPrice: qty * unitPrice
+    });
+  }
+
+  saveDraft();
+  renderProforma();
+  showToast(`➕ "${piece.name}" agregada a la proforma (${qty}x)`, "success");
+}
+
+// Load Piece from Catalog into Calculator inputs
 function loadPieceFromCatalog(pieceId) {
   const piece = appState.catalog.find(p => p.id === pieceId);
   if (piece) {
@@ -681,12 +807,15 @@ function loadPieceFromCatalog(pieceId) {
     document.getElementById("print-minutes").value = piece.minutes;
     document.getElementById("print-grams").value = piece.grams;
     runCalculation();
+    showToast(`Pieza "${piece.name}" cargada en calculadora`, "info");
   }
 }
 
 // Delete Piece from Catalog
 async function deletePieceFromCatalog(pieceId) {
-  if (confirm("¿Estás seguro de que deseas eliminar esta pieza del catálogo?")) {
+  const piece = appState.catalog.find(p => p.id === pieceId);
+  const name = piece ? piece.name : "esta pieza";
+  if (confirm(`¿Estás seguro de que deseas eliminar "${name}" del catálogo?`)) {
     appState.catalog = appState.catalog.filter(p => p.id !== pieceId);
     localStorage.setItem("cotizador_3d_catalog", JSON.stringify(appState.catalog));
     renderCatalog();
@@ -695,10 +824,13 @@ async function deletePieceFromCatalog(pieceId) {
       try {
         const { error } = await supabaseClient.from("catalog_pieces").delete().eq("id", pieceId);
         if (error) throw error;
+        showToast(`Pieza "${name}" eliminada de la nube`, "info");
       } catch (err) {
         console.error("Error eliminando pieza de Supabase:", err);
-        alert("Error al eliminar en la nube: " + err.message);
+        showToast("Error al eliminar en la nube: " + err.message, "error");
       }
+    } else {
+      showToast(`Pieza eliminada del catálogo`, "info");
     }
   }
 }
@@ -710,17 +842,25 @@ function renderCatalog() {
 
   container.innerHTML = "";
 
-  if (appState.catalog.length === 0) {
+  const searchInput = document.getElementById("catalog-search");
+  const query = (searchInput?.value || "").toLowerCase().trim();
+
+  let list = appState.catalog;
+  if (query) {
+    list = list.filter(p => (p.name || "").toLowerCase().includes(query));
+  }
+
+  if (list.length === 0) {
     container.innerHTML = `
       <div class="empty-state">
         <i class="fa-solid fa-shapes"></i>
-        <p>No hay piezas en el catálogo.</p>
+        <p>${query ? 'No se encontraron piezas en el catálogo.' : 'No hay piezas en el catálogo.'}</p>
       </div>
     `;
     return;
   }
 
-  appState.catalog.forEach(piece => {
+  list.forEach(piece => {
     const div = document.createElement("div");
     div.className = "catalog-item";
     
@@ -728,17 +868,22 @@ function renderCatalog() {
     if (piece.hours > 0) timeStr += `${piece.hours}h `;
     if (piece.minutes > 0 || piece.hours === 0) timeStr += `${piece.minutes}m`;
 
+    const unitPrice = calculatePiecePrice(piece.hours, piece.minutes, piece.grams);
+
     div.innerHTML = `
       <div class="cat-info">
-        <span class="cat-name">${piece.name}</span>
-        <span class="cat-meta">${timeStr} • ${piece.grams}g</span>
+        <span class="cat-name" title="${escapeHtml(piece.name)}">${escapeHtml(piece.name)}</span>
+        <span class="cat-meta">${timeStr} • ${piece.grams}g <span class="cat-price-badge">${formatCurrency(unitPrice)}</span></span>
       </div>
       <div class="cat-actions">
-        <button class="btn-load-cat" title="Cargar en calculadora" data-id="${piece.id}">
-          <i class="fa-solid fa-file-import"></i>
+        <button class="btn-action-icon btn-add-cat-direct" title="➕ Agregar directo a la proforma" data-id="${piece.id}" type="button">
+          <i class="fa-solid fa-cart-plus"></i>
         </button>
-        <button class="btn-delete-cat" title="Eliminar del catálogo" data-id="${piece.id}">
-          <i class="fa-solid fa-trash"></i>
+        <button class="btn-action-icon btn-load-cat" title="Cargar en calculadora para modificar" data-id="${piece.id}" type="button">
+          <i class="fa-solid fa-sliders"></i>
+        </button>
+        <button class="btn-action-icon btn-delete-cat" title="Eliminar del catálogo" data-id="${piece.id}" type="button">
+          <i class="fa-solid fa-trash-can"></i>
         </button>
       </div>
     `;
@@ -746,14 +891,21 @@ function renderCatalog() {
   });
 
   // Attach Catalog Event Listeners
-  document.querySelectorAll(".btn-load-cat").forEach(btn => {
+  container.querySelectorAll(".btn-add-cat-direct").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-id");
+      addPieceToProformaDirect(id);
+    });
+  });
+
+  container.querySelectorAll(".btn-load-cat").forEach(btn => {
     btn.addEventListener("click", () => {
       const id = btn.getAttribute("data-id");
       loadPieceFromCatalog(id);
     });
   });
 
-  document.querySelectorAll(".btn-delete-cat").forEach(btn => {
+  container.querySelectorAll(".btn-delete-cat").forEach(btn => {
     btn.addEventListener("click", () => {
       const id = btn.getAttribute("data-id");
       deletePieceFromCatalog(id);
@@ -763,41 +915,41 @@ function renderCatalog() {
 
 // Render Proforma (sync editor to preview)
 function renderProforma() {
-  const clientName = document.getElementById("client-name").value.trim() || "-";
-  const clientAddress = document.getElementById("client-address").value.trim() || "-";
-  const clientEmail = document.getElementById("client-email").value.trim() || "-";
-  const clientAttention = document.getElementById("client-attention").value.trim() || "-";
-  const clientPhone = document.getElementById("client-phone").value.trim() || "-";
-  const clientOthers = document.getElementById("client-others").value.trim() || "-";
-  const paymentMethod = document.getElementById("payment-method").value.trim() || "-";
-  const deliveryDate = document.getElementById("delivery-date").value.trim() || "-";
-  const notes = document.getElementById("proforma-notes").value.trim() || "-";
+  const clientName = document.getElementById("client-name").value.trim();
+  const clientAddress = document.getElementById("client-address").value.trim();
+  const clientEmail = document.getElementById("client-email").value.trim();
+  const clientAttention = document.getElementById("client-attention").value.trim();
+  const clientPhone = document.getElementById("client-phone").value.trim();
+  const clientOthers = document.getElementById("client-others").value.trim();
+  const paymentMethod = document.getElementById("payment-method").value.trim();
+  const deliveryDate = document.getElementById("delivery-date").value.trim();
+  const notes = document.getElementById("proforma-notes").value.trim();
   const discountVal = Math.max(0, parseFloat(document.getElementById("proforma-discount").value) || 0);
   const discountType = document.getElementById("discount-type").value;
 
-  // Sync Details
+  // Sync Details into internal state cleanly (no placeholders)
   appState.proforma.clientName = clientName;
   appState.proforma.clientAddress = clientAddress;
   appState.proforma.clientEmail = clientEmail;
   appState.proforma.clientAttention = clientAttention;
   appState.proforma.clientPhone = clientPhone;
   appState.proforma.clientOthers = clientOthers;
-  appState.proforma.paymentMethod = paymentMethod;
+  appState.proforma.paymentMethod = paymentMethod || "Transferencia";
   appState.proforma.deliveryDate = deliveryDate;
   appState.proforma.notes = notes;
   appState.proforma.discount = discountVal;
   appState.proforma.discountType = discountType;
 
-  // Print PDF Preview fields
-  document.getElementById("pdf-client-name").textContent = clientName;
-  document.getElementById("pdf-client-address").textContent = clientAddress;
-  document.getElementById("pdf-client-email").textContent = clientEmail;
-  document.getElementById("pdf-client-attention").textContent = clientAttention;
-  document.getElementById("pdf-client-phone").textContent = clientPhone;
-  document.getElementById("pdf-client-others").textContent = clientOthers;
-  document.getElementById("pdf-payment-method").textContent = paymentMethod;
-  document.getElementById("pdf-delivery-date").textContent = deliveryDate;
-  document.getElementById("pdf-notes").textContent = notes;
+  // Print PDF Preview fields (display "-" only in view if empty)
+  document.getElementById("pdf-client-name").textContent = clientName || "-";
+  document.getElementById("pdf-client-address").textContent = clientAddress || "-";
+  document.getElementById("pdf-client-email").textContent = clientEmail || "-";
+  document.getElementById("pdf-client-attention").textContent = clientAttention || "-";
+  document.getElementById("pdf-client-phone").textContent = clientPhone || "-";
+  document.getElementById("pdf-client-others").textContent = clientOthers || "-";
+  document.getElementById("pdf-payment-method").textContent = paymentMethod || "-";
+  document.getElementById("pdf-delivery-date").textContent = deliveryDate || "-";
+  document.getElementById("pdf-notes").textContent = notes || "-";
 
   // Render Table Rows
   const tbody = document.getElementById("pdf-items-body");
@@ -893,10 +1045,13 @@ function renderProformaItemsManager() {
     row.innerHTML = `
       <div class="proforma-item-info">
         <span class="proforma-item-qty">${item.qty}x</span>
-        <span class="proforma-item-name" title="${item.description}">${item.description}</span>
+        <span class="proforma-item-name" title="${escapeHtml(item.description)}">${escapeHtml(item.description)}</span>
       </div>
       <div class="proforma-item-right">
         <span class="proforma-item-total">${formatCurrency(item.totalPrice)}</span>
+        <button class="proforma-item-cat-btn" title="Guardar esta pieza en el catálogo para reutilizarla" data-id="${item.id}" type="button">
+          <i class="fa-solid fa-bookmark"></i>
+        </button>
         <button class="proforma-item-del-btn" title="Eliminar ítem" data-id="${item.id}" type="button" aria-label="Eliminar ítem">
           <i class="fa-solid fa-trash-can"></i>
         </button>
@@ -905,7 +1060,7 @@ function renderProformaItemsManager() {
     container.appendChild(row);
   });
 
-  // Attach delete events for the manager list
+  // Attach delete events
   container.querySelectorAll(".proforma-item-del-btn").forEach(btn => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -913,40 +1068,108 @@ function renderProformaItemsManager() {
       deleteItem(itemId);
     });
   });
+
+  // Attach save-to-catalog events
+  container.querySelectorAll(".proforma-item-cat-btn").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const itemId = btn.getAttribute("data-id");
+      saveItemFromProformaToCatalog(itemId);
+    });
+  });
+}
+
+// Save Item from Proforma Line Items into Catalog
+async function saveItemFromProformaToCatalog(itemId) {
+  const item = appState.proforma.items.find(it => it.id === itemId);
+  if (!item) return;
+
+  const existingIdx = appState.catalog.findIndex(p => p.name.toLowerCase() === item.description.toLowerCase());
+  if (existingIdx > -1) {
+    showToast(`"${item.description}" ya está registrada en el catálogo.`, "info");
+    return;
+  }
+
+  // Estimate hours and grams from unit price with current rates
+  const unitPrice = item.unitPrice || 0;
+  const prodCost = unitPrice / (1 + (appState.rates.margin / 100));
+  const estimatedGrams = Math.max(1, Math.round((prodCost * 0.4) / (appState.rates.material || 0.02)));
+  const estimatedHoursTotal = (prodCost * 0.6) / (appState.rates.time || 0.32);
+  const hours = Math.floor(estimatedHoursTotal);
+  const minutes = Math.round((estimatedHoursTotal - hours) * 60);
+
+  const pieceData = {
+    id: "cat-" + Date.now(),
+    name: item.description,
+    hours: hours,
+    minutes: minutes,
+    grams: estimatedGrams,
+    timestamp: Date.now()
+  };
+
+  appState.catalog.unshift(pieceData);
+  localStorage.setItem("cotizador_3d_catalog", JSON.stringify(appState.catalog));
+  renderCatalog();
+
+  if (useSupabase && supabaseClient) {
+    try {
+      const { error } = await supabaseClient.from("catalog_pieces").upsert(pieceData);
+      if (error) throw error;
+      showToast(`✅ "${item.description}" guardada en el catálogo (Supabase)`, "success");
+    } catch (err) {
+      console.error("Error guardando en Supabase:", err);
+      showToast(`Guardada localmente en catálogo`, "info");
+    }
+  } else {
+    showToast(`"${item.description}" guardada en el catálogo local`, "success");
+  }
+}
+
+// Start a Fresh Blank Proforma
+function startNewProforma() {
+  appState.currentProformaId = null;
+  appState.proforma = {
+    clientName: "",
+    clientAttention: "Ambar",
+    clientPhone: "",
+    clientAddress: "",
+    clientEmail: "",
+    clientOthers: "",
+    paymentMethod: "Transferencia",
+    deliveryDate: "",
+    discount: 0,
+    discountType: "fixed",
+    notes: "",
+    items: []
+  };
+  populateEditorFields();
+  updateProformaStatusBadge();
+  saveDraft();
+  renderProforma();
+  showToast("Nueva proforma en blanco lista.", "info");
 }
 
 // Clear Proforma Builder
 function clearProforma() {
-  if (confirm("¿Estás seguro de que deseas limpiar la proforma actual? Se borrarán todos los artículos e información del cliente.")) {
-    appState.proforma = {
-      clientName: "",
-      clientAttention: "",
-      clientPhone: "",
-      clientAddress: "",
-      clientEmail: "",
-      clientOthers: "",
-      paymentMethod: "Transferencia",
-      deliveryDate: "",
-      discount: 0,
-      notes: "",
-      items: []
-    };
-    populateEditorFields();
-    saveDraft();
-    renderProforma();
+  if (confirm("¿Estás seguro de que deseas limpiar la proforma actual? Se borrarán todos los artículos e información.")) {
+    startNewProforma();
   }
 }
 
-// Save Proforma to History list
-async function saveProformaToHistory() {
+// Save Proforma to History list (handles both UPDATE and SAVE AS NEW)
+async function saveProformaToHistory(asNew = false) {
   if (appState.proforma.items.length === 0) {
-    alert("No puedes guardar una proforma vacía.");
+    showToast("No puedes guardar una proforma sin artículos.", "warning");
     return;
   }
 
   const client = appState.proforma.clientName.trim() || "Cliente Sin Nombre";
   const subtotal = appState.proforma.items.reduce((sum, item) => sum + item.totalPrice, 0);
-  const total = Math.max(0, subtotal - appState.proforma.discount);
+  const discountVal = appState.proforma.discount || 0;
+  const discountAmount = appState.proforma.discountType === "percent"
+    ? subtotal * (discountVal / 100)
+    : discountVal;
+  const total = Math.max(0, subtotal - discountAmount);
   const timestamp = Date.now();
   const dateStr = new Date().toLocaleDateString('es-EC', {
     day: 'numeric',
@@ -955,8 +1178,17 @@ async function saveProformaToHistory() {
   });
 
   const proformaData = JSON.parse(JSON.stringify(appState.proforma));
+  
+  let targetId = appState.currentProformaId;
+  const isUpdate = Boolean(targetId && !asNew);
+
+  if (!isUpdate) {
+    targetId = "prof-" + timestamp;
+    appState.currentProformaId = targetId;
+  }
+
   const record = {
-    id: "prof-" + timestamp,
+    id: targetId,
     client_name: client,
     clientName: client,
     total: total,
@@ -966,17 +1198,26 @@ async function saveProformaToHistory() {
     data: proformaData
   };
 
-  appState.history.unshift(record);
-  if (appState.history.length > 50) {
-    appState.history.pop();
+  if (isUpdate) {
+    const idx = appState.history.findIndex(h => h.id === targetId);
+    if (idx > -1) {
+      appState.history[idx] = record;
+    } else {
+      appState.history.unshift(record);
+    }
+  } else {
+    appState.history.unshift(record);
+    if (appState.history.length > 100) appState.history.pop();
   }
 
   localStorage.setItem("cotizador_3d_history", JSON.stringify(appState.history));
+  updateProformaStatusBadge();
+  saveDraft();
   renderHistory();
 
   if (useSupabase && supabaseClient) {
     try {
-      const { error } = await supabaseClient.from("proformas_history").insert({
+      const { error } = await supabaseClient.from("proformas_history").upsert({
         id: record.id,
         client_name: client,
         total: total,
@@ -985,30 +1226,110 @@ async function saveProformaToHistory() {
         data: proformaData
       });
       if (error) throw error;
-      alert("Proforma guardada exitosamente en la nube (Supabase).");
+      showToast(isUpdate ? `✅ Proforma de "${client}" actualizada en Supabase` : `✅ Proforma de "${client}" guardada en Supabase`, "success");
     } catch (err) {
       console.error("Error al guardar proforma en Supabase:", err);
-      alert("Proforma guardada localmente (Error en la nube: " + err.message + ")");
+      showToast(`Guardada localmente (Error en nube: ${err.message})`, "warning");
     }
   } else {
-    alert("Proforma guardada localmente en tu historial.");
+    showToast(`Guardada localmente en tu historial`, "info");
   }
 }
 
-// Load Proforma from History
+// Load Proforma from History for full editing
 function loadProformaFromHistory(historyId) {
   const record = appState.history.find(item => item.id === historyId);
-  if (record) {
+  if (record && record.data) {
+    appState.currentProformaId = record.id;
     appState.proforma = JSON.parse(JSON.stringify(record.data));
     populateEditorFields();
+    updateProformaStatusBadge();
     saveDraft();
     renderProforma();
+    showToast(`📂 Proforma de "${record.client_name}" cargada para editar`, "info");
   }
+}
+
+// Use a saved proforma as template for a NEW client (keeps pieces and prices, resets client data)
+function duplicateProformaAsTemplate(historyId) {
+  const record = appState.history.find(item => item.id === historyId);
+  if (!record || !record.data) return;
+
+  const data = JSON.parse(JSON.stringify(record.data));
+  appState.currentProformaId = null; // New proforma ID
+  appState.proforma = {
+    clientName: "", // Ready for new client
+    clientAttention: data.clientAttention || "Ambar",
+    clientPhone: "",
+    clientAddress: "",
+    clientEmail: "",
+    clientOthers: "",
+    paymentMethod: data.paymentMethod || "Transferencia",
+    deliveryDate: data.deliveryDate || "",
+    discount: data.discount || 0,
+    discountType: data.discountType || "fixed",
+    notes: data.notes || "",
+    items: (data.items || []).map((it, idx) => ({
+      ...it,
+      id: "item-" + Date.now() + "-" + idx
+    }))
+  };
+
+  populateEditorFields();
+  updateProformaStatusBadge();
+  saveDraft();
+  renderProforma();
+
+  const clientInput = document.getElementById("client-name");
+  if (clientInput) {
+    clientInput.focus();
+  }
+
+  showToast(`📋 Plantilla cargada con ${(data.items || []).length} piezas de "${record.client_name}". Ingresa el nuevo cliente.`, "info");
+}
+
+// Append pieces from a saved proforma to the current proforma (combines quotes)
+function appendItemsFromHistory(historyId) {
+  const record = appState.history.find(item => item.id === historyId);
+  if (!record || !record.data || !record.data.items || record.data.items.length === 0) {
+    showToast("Esta proforma no contiene piezas.", "warning");
+    return;
+  }
+
+  const itemsToAdd = record.data.items;
+  itemsToAdd.forEach((item, idx) => {
+    const existingIdx = appState.proforma.items.findIndex(
+      it => it.description.toLowerCase() === item.description.toLowerCase() && Math.abs(it.unitPrice - item.unitPrice) < 0.02
+    );
+    if (existingIdx > -1) {
+      appState.proforma.items[existingIdx].qty += item.qty;
+      appState.proforma.items[existingIdx].totalPrice = appState.proforma.items[existingIdx].qty * appState.proforma.items[existingIdx].unitPrice;
+    } else {
+      appState.proforma.items.push({
+        id: "item-" + Date.now() + "-" + idx + "-" + Math.floor(Math.random() * 1000),
+        qty: item.qty,
+        description: item.description,
+        unitPrice: item.unitPrice,
+        totalPrice: item.totalPrice
+      });
+    }
+  });
+
+  saveDraft();
+  renderProforma();
+  showToast(`➕ Se agregaron ${itemsToAdd.length} piezas desde la proforma de "${record.client_name}"`, "success");
 }
 
 // Delete Proforma from History
 async function deleteProformaFromHistory(historyId) {
-  if (confirm("¿Seguro que deseas eliminar esta proforma del historial?")) {
+  const record = appState.history.find(item => item.id === historyId);
+  const name = record ? record.client_name : "esta proforma";
+
+  if (confirm(`¿Seguro que deseas eliminar la proforma de "${name}" del historial?`)) {
+    if (appState.currentProformaId === historyId) {
+      appState.currentProformaId = null;
+      updateProformaStatusBadge();
+    }
     appState.history = appState.history.filter(item => item.id !== historyId);
     localStorage.setItem("cotizador_3d_history", JSON.stringify(appState.history));
     renderHistory();
@@ -1017,49 +1338,75 @@ async function deleteProformaFromHistory(historyId) {
       try {
         const { error } = await supabaseClient.from("proformas_history").delete().eq("id", historyId);
         if (error) throw error;
+        showToast(`Proforma de "${name}" eliminada de la nube`, "info");
       } catch (err) {
         console.error("Error al eliminar proforma de Supabase:", err);
-        alert("Error al eliminar en la nube: " + err.message);
+        showToast("Error al eliminar en la nube: " + err.message, "error");
       }
+    } else {
+      showToast(`Proforma eliminada del historial`, "info");
     }
   }
 }
 
-// Render History UI list
+// Render History UI list with Search
 function renderHistory() {
   const container = document.getElementById("history-list");
   if (!container) return;
   container.innerHTML = "";
 
-  if (appState.history.length === 0) {
+  const searchInput = document.getElementById("history-search");
+  const query = (searchInput?.value || "").toLowerCase().trim();
+
+  let list = appState.history;
+  if (query) {
+    list = list.filter(item => {
+      const client = (item.client_name || item.clientName || "").toLowerCase();
+      const date = (item.date_str || item.date || "").toLowerCase();
+      const itemDesc = (item.data?.items || []).map(it => (it.description || "").toLowerCase()).join(" ");
+      return client.includes(query) || date.includes(query) || itemDesc.includes(query);
+    });
+  }
+
+  if (list.length === 0) {
     container.innerHTML = `
       <div class="empty-state">
         <i class="fa-solid fa-receipt"></i>
-        <p>No tienes proformas guardadas aún.</p>
+        <p>${query ? 'No se encontraron proformas coincidentes.' : 'No tienes proformas guardadas aún.'}</p>
       </div>
     `;
     return;
   }
 
-  appState.history.forEach(item => {
+  list.forEach(item => {
     const div = document.createElement("div");
     div.className = "history-item";
+    if (appState.currentProformaId === item.id) {
+      div.style.borderColor = "var(--primary)";
+      div.style.background = "var(--primary-light)";
+    }
     const client = item.client_name || item.clientName || "Cliente";
     const date = item.date_str || item.date || "-";
     const itemCount = item.data?.items?.length || 0;
 
     div.innerHTML = `
       <div class="hist-info">
-        <span class="hist-client">${client}</span>
-        <span class="hist-meta">${date} • ${itemCount} ítems</span>
+        <span class="hist-client" title="${escapeHtml(client)}">${escapeHtml(client)}</span>
+        <span class="hist-meta">${escapeHtml(date)} • ${itemCount} ${itemCount === 1 ? 'ítem' : 'ítems'}</span>
       </div>
       <div class="hist-actions">
         <span class="hist-total">${formatCurrency(item.total)}</span>
-        <button class="btn-load-hist" title="Cargar proforma" data-id="${item.id}">
-          <i class="fa-solid fa-file-import"></i>
+        <button class="btn-action-icon btn-load-hist" title="Cargar y editar proforma completa" data-id="${item.id}" type="button">
+          <i class="fa-solid fa-pen-to-square"></i>
         </button>
-        <button class="btn-delete-hist" title="Eliminar proforma" data-id="${item.id}">
-          <i class="fa-solid fa-trash"></i>
+        <button class="btn-action-icon btn-template-hist" title="Usar como plantilla para NUEVO cliente (mantiene piezas y precios)" data-id="${item.id}" type="button">
+          <i class="fa-solid fa-user-plus"></i>
+        </button>
+        <button class="btn-action-icon btn-append-hist" title="➕ Sumar estas piezas a la proforma actual" data-id="${item.id}" type="button">
+          <i class="fa-solid fa-plus"></i>
+        </button>
+        <button class="btn-action-icon btn-delete-hist" title="Eliminar proforma" data-id="${item.id}" type="button">
+          <i class="fa-solid fa-trash-can"></i>
         </button>
       </div>
     `;
@@ -1067,14 +1414,28 @@ function renderHistory() {
   });
 
   // Attach History Events
-  document.querySelectorAll(".btn-load-hist").forEach(btn => {
+  container.querySelectorAll(".btn-load-hist").forEach(btn => {
     btn.addEventListener("click", () => {
       const id = btn.getAttribute("data-id");
       loadProformaFromHistory(id);
     });
   });
 
-  document.querySelectorAll(".btn-delete-hist").forEach(btn => {
+  container.querySelectorAll(".btn-template-hist").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-id");
+      duplicateProformaAsTemplate(id);
+    });
+  });
+
+  container.querySelectorAll(".btn-append-hist").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-id");
+      appendItemsFromHistory(id);
+    });
+  });
+
+  container.querySelectorAll(".btn-delete-hist").forEach(btn => {
     btn.addEventListener("click", () => {
       const id = btn.getAttribute("data-id");
       deleteProformaFromHistory(id);
@@ -1216,9 +1577,21 @@ function setupEventListeners() {
 
   // Proforma Action Buttons
   document.getElementById("clear-proforma-btn").addEventListener("click", clearProforma);
+  document.getElementById("btn-start-new-proforma").addEventListener("click", startNewProforma);
   document.getElementById("register-sale-btn").addEventListener("click", registerSale);
-  document.getElementById("save-proforma-btn").addEventListener("click", saveProformaToHistory);
+  document.getElementById("save-as-new-proforma-btn").addEventListener("click", () => saveProformaToHistory(true));
+  document.getElementById("save-proforma-btn").addEventListener("click", () => saveProformaToHistory(false));
   document.getElementById("download-pdf-btn").addEventListener("click", downloadPDF);
+
+  // Search Filters for Catalog and History
+  const catalogSearch = document.getElementById("catalog-search");
+  if (catalogSearch) {
+    catalogSearch.addEventListener("input", renderCatalog);
+  }
+  const historySearch = document.getElementById("history-search");
+  if (historySearch) {
+    historySearch.addEventListener("input", renderHistory);
+  }
 }
 
 // Dynamically scale down the PDF preview sheet to fit mobile screens

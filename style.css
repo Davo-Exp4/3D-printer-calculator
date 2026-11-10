@@ -1617,3 +1617,233 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
   box-shadow: none;
   border-radius: 0;
 }
+
+/* ==========================================================================
+   Persistencia, Estado de Proforma, Búsqueda y Toasts
+   ========================================================================== */
+
+/* Barra de estado en el encabezado de la proforma */
+.card-header-flex {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.header-title-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.proforma-status-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mode-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 5px 12px;
+  border-radius: 20px;
+  letter-spacing: 0.3px;
+  transition: var(--transition);
+}
+
+.mode-badge.new-mode {
+  background-color: var(--primary-light);
+  color: var(--primary);
+  border: 1px solid rgba(123, 63, 155, 0.25);
+}
+
+.mode-badge.editing-mode {
+  background-color: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+
+body.dark-mode .mode-badge.editing-mode {
+  background-color: #451a03;
+  color: #fcd34d;
+  border-color: #78350f;
+}
+
+/* Caja de búsqueda rápida en Catálogo e Historial */
+.search-box {
+  position: relative;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+}
+
+.search-box .search-icon {
+  position: absolute;
+  left: 12px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  pointer-events: none;
+}
+
+.search-box input {
+  padding-left: 36px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  font-size: 0.85rem;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-card);
+}
+
+/* Botones de acción rápida en listas */
+.btn-action-icon {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+  cursor: pointer;
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  transition: var(--transition);
+  padding: 0;
+}
+
+.btn-action-icon:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+
+.btn-add-cat-direct {
+  color: var(--success);
+  border-color: rgba(46, 125, 50, 0.3);
+  background-color: rgba(46, 125, 50, 0.08);
+}
+
+.btn-add-cat-direct:hover {
+  background-color: var(--success);
+  color: #ffffff;
+  border-color: var(--success);
+}
+
+.btn-template-hist {
+  color: var(--primary);
+  border-color: rgba(123, 63, 155, 0.3);
+  background-color: var(--primary-light);
+}
+
+.btn-template-hist:hover {
+  background-color: var(--primary);
+  color: #ffffff;
+  border-color: var(--primary);
+}
+
+.btn-append-hist {
+  color: #2563eb;
+  border-color: rgba(37, 99, 235, 0.3);
+  background-color: #eff6ff;
+}
+
+.btn-append-hist:hover {
+  background-color: #2563eb;
+  color: #ffffff;
+  border-color: #2563eb;
+}
+
+body.dark-mode .btn-append-hist {
+  background-color: rgba(37, 99, 235, 0.15);
+  color: #93c5fd;
+  border-color: rgba(37, 99, 235, 0.4);
+}
+
+.cat-price-badge {
+  font-weight: 700;
+  color: var(--primary);
+  background: var(--primary-light);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  margin-left: 4px;
+}
+
+/* Botón para guardar ítem al catálogo desde el gestor de la proforma */
+.proforma-item-cat-btn {
+  background: none;
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.proforma-item-cat-btn:hover {
+  background: var(--primary-light);
+  color: var(--primary);
+  border-color: var(--primary);
+  transform: scale(1.08);
+}
+
+/* Toast Notifications Flotantes */
+.toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 9999;
+  pointer-events: none;
+  max-width: calc(100vw - 48px);
+}
+
+.toast-item {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text-main);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22);
+  border-left: 4px solid var(--primary);
+  border-top: 1px solid var(--border-color);
+  border-right: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
+  font-size: 0.88rem;
+  font-weight: 500;
+  opacity: 0;
+  transform: translateY(15px) scale(0.95);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.toast-item.toast-show {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.toast-item.toast-success { border-left-color: var(--success); }
+.toast-item.toast-success i { color: var(--success); font-size: 1.1rem; }
+
+.toast-item.toast-error { border-left-color: var(--danger); }
+.toast-item.toast-error i { color: var(--danger); font-size: 1.1rem; }
+
+.toast-item.toast-info { border-left-color: var(--primary); }
+.toast-item.toast-info i { color: var(--primary); font-size: 1.1rem; }
+
+.toast-item.toast-warning { border-left-color: #f59e0b; }
+.toast-item.toast-warning i { color: #f59e0b; font-size: 1.1rem; }
+

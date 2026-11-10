@@ -132,6 +132,10 @@
             <h2>Catálogo de Piezas Compartido</h2>
           </div>
           <div class="card-body">
+            <div class="search-box">
+              <i class="fa-solid fa-magnifying-glass search-icon"></i>
+              <input type="text" id="catalog-search" placeholder="Buscar pieza en catálogo..." autocomplete="off">
+            </div>
             <div id="catalog-list" class="catalog-list">
               <div class="empty-state">
                 <i class="fa-solid fa-shapes"></i>
@@ -191,6 +195,10 @@
             <h2>Historial de Proformas</h2>
           </div>
           <div class="card-body">
+            <div class="search-box">
+              <i class="fa-solid fa-magnifying-glass search-icon"></i>
+              <input type="text" id="history-search" placeholder="Buscar por cliente, fecha o pieza..." autocomplete="off">
+            </div>
             <div id="history-list" class="history-list">
               <div class="empty-state">
                 <i class="fa-solid fa-receipt"></i>
@@ -223,15 +231,25 @@
         
         <!-- Editor Card -->
         <div class="card card-editor">
-          <div class="card-header">
-            <i class="fa-solid fa-file-pen text-primary"></i>
-            <h2>Datos de la Proforma</h2>
+          <div class="card-header card-header-flex">
+            <div class="header-title-group">
+              <i class="fa-solid fa-file-pen text-primary"></i>
+              <h2>Datos de la Proforma</h2>
+            </div>
+            <div class="proforma-status-pill">
+              <span id="proforma-mode-badge" class="mode-badge new-mode">
+                <i class="fa-solid fa-sparkles"></i> Nueva Proforma
+              </span>
+              <button id="btn-start-new-proforma" class="btn-sm btn-secondary hidden" type="button" title="Limpiar y comenzar una nueva proforma">
+                <i class="fa-solid fa-plus"></i> Nueva en Blanco
+              </button>
+            </div>
           </div>
           <div class="card-body">
             <div class="form-row">
               <div class="form-group col-4">
                 <label for="client-name">Cliente</label>
-                <input type="text" id="client-name" placeholder="Nombre del cliente" value="Belén Torres">
+                <input type="text" id="client-name" placeholder="Ej: Belén Torres, Hugo, Elaine...">
               </div>
               <div class="form-group col-4">
                 <label for="client-attention">Atención</label>
@@ -239,7 +257,7 @@
               </div>
               <div class="form-group col-4">
                 <label for="client-phone">Teléfono</label>
-                <input type="text" id="client-phone" placeholder="Celular" value="0987363300">
+                <input type="text" id="client-phone" placeholder="Ej: 0987363300">
               </div>
             </div>
 
@@ -265,7 +283,7 @@
               </div>
               <div class="form-group col-4">
                 <label for="delivery-date">Fecha de Entrega</label>
-                <input type="text" id="delivery-date" placeholder="Ej: 23 de junio" value="23 de junio">
+                <input type="text" id="delivery-date" placeholder="Ej: 3 a 5 días laborables">
               </div>
               <div class="form-group col-4">
                 <label for="proforma-discount">Descuento</label>
@@ -274,17 +292,14 @@
                     <option value="fixed" selected>$</option>
                     <option value="percent">%</option>
                   </select>
-                  <input type="number" id="proforma-discount" min="0" value="5.00" step="0.01">
+                  <input type="number" id="proforma-discount" min="0" value="0.00" step="0.01">
                 </div>
               </div>
             </div>
 
             <div class="form-group">
               <label for="proforma-notes">Observaciones / Notas de la Proforma</label>
-              <textarea id="proforma-notes" rows="3" placeholder="Detalle de colores, materiales, empaques, etc.">10 bandejas joyeros, color negro
-10 Leones, color beige
-10 Macetas, color blanco hueso + suculentas
-10 Cajas Cartulina</textarea>
+              <textarea id="proforma-notes" rows="3" placeholder="Detalle de colores, materiales, abono requerido, empaques, etc."></textarea>
             </div>
 
             <!-- Add Manual Item -->
@@ -311,17 +326,20 @@
             </div>
 
             <div class="editor-actions">
-              <button id="clear-proforma-btn" class="btn btn-danger-outline">
-                <i class="fa-solid fa-trash-can"></i> Limpiar Todo
+              <button id="clear-proforma-btn" class="btn btn-danger-outline" type="button">
+                <i class="fa-solid fa-trash-can"></i> Limpiar
               </button>
-              <button id="register-sale-btn" class="btn btn-success-outline">
+              <button id="register-sale-btn" class="btn btn-success-outline" type="button">
                 <i class="fa-solid fa-cart-check"></i> Registrar Venta
               </button>
-              <button id="save-proforma-btn" class="btn btn-secondary">
+              <button id="save-as-new-proforma-btn" class="btn btn-secondary hidden" type="button" title="Guardar como una nueva proforma independiente en el historial">
+                <i class="fa-solid fa-copy"></i> Guardar como Copia
+              </button>
+              <button id="save-proforma-btn" class="btn btn-secondary" type="button">
                 <i class="fa-solid fa-floppy-disk"></i> Guardar Historial
               </button>
-              <button id="download-pdf-btn" class="btn btn-primary">
-                <i class="fa-solid fa-file-pdf"></i> Generar y Descargar PDF
+              <button id="download-pdf-btn" class="btn btn-primary" type="button">
+                <i class="fa-solid fa-file-pdf"></i> Generar PDF
               </button>
             </div>
           </div>
@@ -492,6 +510,9 @@
       </div>
     </div>
   </div>
+
+  <!-- Toast Notifications Container -->
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
   <!-- Script -->
   <script src="app.js"></script>

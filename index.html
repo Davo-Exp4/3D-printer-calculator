@@ -119,7 +119,7 @@
                 <i class="fa-solid fa-plus-circle"></i> Agregar a Proforma
               </button>
             </div>
-            <button id="save-piece-catalog-btn" class="btn btn-secondary btn-block" style="margin-top: 10px;">
+            <button id="save-piece-catalog-btn" class="btn btn-secondary btn-block" style="margin-top: 12px;">
               <i class="fa-solid fa-bookmark"></i> Guardar Pieza en Catálogo
             </button>
           </div>
@@ -269,12 +269,12 @@
               </div>
               <div class="form-group col-4">
                 <label for="proforma-discount">Descuento</label>
-                <div style="display: flex; gap: 6px;">
-                  <select id="discount-type" style="width: 70px; padding: 12px 6px;">
+                <div class="discount-control">
+                  <select id="discount-type" aria-label="Tipo de descuento">
                     <option value="fixed" selected>$</option>
                     <option value="percent">%</option>
                   </select>
-                  <input type="number" id="proforma-discount" min="0" value="5.00" step="0.01" style="flex: 1;">
+                  <input type="number" id="proforma-discount" min="0" value="5.00" step="0.01">
                 </div>
               </div>
             </div>

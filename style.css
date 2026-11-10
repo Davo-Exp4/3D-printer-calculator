@@ -14,6 +14,8 @@
   --success: #2e7d32;
   --shadow-sm: 0 2px 8px rgba(123, 63, 155, 0.05);
   --shadow-md: 0 8px 24px rgba(123, 63, 155, 0.08);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.25);
+  --bg-body: var(--bg-app);
   --radius: 12px;
   --radius-sm: 8px;
   --font-family: 'Outfit', sans-serif;
@@ -1214,7 +1216,10 @@ body.light-mode .proforma-preview-container {
 
 /* Ocultar botones en la exportación a PDF y al imprimir */
 .is-exporting-pdf .row-action-btn,
-.is-exporting-pdf button,
+.is-exporting-pdf button {
+  display: none !important;
+}
+
 @media print {
   .row-action-btn,
   .no-print {
@@ -1478,4 +1483,137 @@ body.light-mode .proforma-preview-container {
 @keyframes slideUp {
   from { transform: translateY(20px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
+}
+
+
+/* ==========================================================================
+   Mejoras de UX / proporciones de controles
+   ========================================================================== */
+html { -webkit-text-size-adjust: 100%; }
+
+/* Campos sin icono no necesitan sangría izquierda */
+.input-wrapper input:not(:only-child) { padding-left: 14px; }
+.input-wrapper .input-icon + input { padding-left: 40px; }
+.time-inputs .input-wrapper input,
+#print-grams { padding-left: 14px; padding-right: 30px; }
+
+/* Evitar que inputs/columnas se desborden */
+.form-row { flex-wrap: wrap; }
+.form-row > .form-group { min-width: 0; margin-bottom: 0; }
+.form-row > .col-6 { flex: 1 1 calc(50% - 8px); width: auto; }
+.form-row > .col-4 { flex: 1 1 calc(33.333% - 11px); width: auto; }
+@media (max-width: 1280px) and (min-width: 1025px), (max-width: 640px) {
+  .form-row > .col-4 { flex: 1 1 calc(50% - 8px); }
+}
+@media (max-width: 420px) {
+  .form-row > .col-4, .form-row > .col-6 { flex-basis: 100%; }
+}
+
+/* Select con apariencia consistente */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  padding-right: 28px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M1 1l4 4 4-4' fill='none' stroke='%23796e85' stroke-width='1.6' stroke-linecap='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(123, 63, 155, 0.15); }
+
+.discount-control { display: flex; gap: 6px; }
+.discount-control select { width: 64px; flex: 0 0 64px; padding-left: 10px; }
+.discount-control input { flex: 1; min-width: 0; }
+
+textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
+
+/* Foco accesible */
+.btn:focus-visible, .btn-icon:focus-visible, .qty-btn:focus-visible, .status-badge:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; box-shadow: none; }
+
+/* Header responsive */
+.app-header { gap: 12px; flex-wrap: wrap; }
+.btn-icon { flex-shrink: 0; }
+@media (max-width: 520px) {
+  .app-wrapper { padding: 12px; gap: 16px; }
+  .app-header { padding: 12px 14px; }
+  .card-body { padding: 16px; }
+  .card-header { padding: 14px 16px; }
+}
+
+/* Selector de cantidad + botón agregar alineados */
+.proforma-add-actions { align-items: stretch; }
+.quantity-selector { flex: 0 0 auto; align-items: stretch; }
+.quantity-selector input { padding: 0; height: auto; min-height: 44px; -moz-appearance: textfield; appearance: textfield; }
+.proforma-add-actions .btn-block { flex: 1; width: auto; min-width: 0; }
+.btn { min-height: 44px; text-align: center; }
+.btn-sm { min-height: 36px; }
+
+/* Ítem manual: grid proporcionado */
+.manual-item-row {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr) 130px auto;
+  gap: 10px;
+  align-items: center;
+}
+.manual-item-row .col-qty, .manual-item-row .col-price { width: 100%; }
+.manual-item-row .btn { white-space: nowrap; }
+@media (max-width: 768px) {
+  .manual-item-row { grid-template-columns: 80px minmax(0, 1fr); }
+  .manual-item-row .col-desc { grid-column: 1 / -1; order: -1; }
+  .manual-item-row .btn { grid-column: 1 / -1; width: 100%; }
+}
+
+/* Acciones del editor: cuadrícula uniforme */
+.editor-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.editor-actions .btn { width: 100%; padding: 12px 10px; font-size: 0.88rem; white-space: nowrap; }
+@media (max-width: 1280px) and (min-width: 1025px), (max-width: 768px) {
+  .editor-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 420px) {
+  .editor-actions { grid-template-columns: 1fr; }
+}
+
+/* Listas: textos largos no empujan los botones */
+.hist-info, .cat-info, .sale-info { min-width: 0; flex: 1; }
+.hist-client, .cat-name, .sale-client { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hist-actions, .cat-actions, .sale-actions { flex-shrink: 0; }
+.history-item, .catalog-item, .sales-item { gap: 10px; }
+
+/* Panel colapsable: no recortar contenido */
+.collapsible-body { max-height: 900px; }
+
+/* Vista previa: contenedor sin desbordes, la hoja nunca se recorta */
+.proforma-preview-container { max-width: 100%; }
+.proforma-pdf { flex-shrink: 0; }
+.pdf-details-grid > div, .pdf-footer-layout > div { min-width: 0; }
+.pdf-table td.col-description { word-break: break-word; overflow-wrap: anywhere; }
+.pdf-table tr { page-break-inside: avoid; break-inside: avoid; }
+.pdf-footer-layout, .pdf-header, .pdf-details-grid { page-break-inside: avoid; break-inside: avoid; }
+.footer-field-row span:not(.bold) { word-break: break-word; }
+.total-row-item .val { width: auto; min-width: 100px; white-space: nowrap; }
+.pdf-table td.col-unit { white-space: nowrap; }
+.pdf-table td.col-total { padding: 8px 10px; }
+
+/* Clon de exportación: fuera de pantalla, sin transformaciones, ajustado a 1 página carta */
+.pdf-export-host {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  width: 800px;
+  pointer-events: none;
+}
+.pdf-export-host .proforma-pdf {
+  transform: none !important;
+  width: 800px;
+  min-height: 1040px;
+  box-shadow: none;
+  border-radius: 0;
 }

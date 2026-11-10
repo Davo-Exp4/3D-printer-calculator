@@ -1084,23 +1084,35 @@ function renderHistory() {
 
 // Download PDF
 function downloadPDF() {
-  const element = document.getElementById("proforma-print-area");
+  const source = document.getElementById("proforma-print-area");
   const clientName = document.getElementById("client-name").value.trim() || "Cliente";
-  
-  // Hide delete action buttons on PDF export
-  document.querySelectorAll(".row-action-btn").forEach(btn => btn.style.display = "none");
+
+  // Clon fuera de pantalla: sin escala móvil, sin botones, ancho fijo (evita recortes y páginas en blanco)
+  const host = document.createElement("div");
+  host.className = "pdf-export-host is-exporting-pdf";
+  const clone = source.cloneNode(true);
+  clone.removeAttribute("id");
+  clone.style.transform = "none";
+  clone.querySelectorAll(".row-action-btn, button").forEach(el => el.remove());
+  host.appendChild(clone);
+  document.body.appendChild(host);
 
   const opt = {
     margin: [0.3, 0.3, 0.3, 0.3],
     filename: `Proforma_${clientName.replace(/\s+/g, '_')}.pdf`,
     image: { type: 'jpeg', quality: 0.98 },
-    html2canvas: { 
-      scale: 2.5, 
+    html2canvas: {
+      scale: 2,
       useCORS: true,
       logging: false,
-      letterRendering: true
+      letterRendering: true,
+      scrollX: 0,
+      scrollY: 0,
+      windowWidth: 800,
+      width: 800
     },
-    jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
+    jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
+    pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', '.pdf-footer-layout', '.pdf-header'] }
   };
 
   const downloadButton = document.getElementById("download-pdf-btn");
@@ -1108,16 +1120,16 @@ function downloadPDF() {
   downloadButton.disabled = true;
   downloadButton.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generando PDF...';
 
-  html2pdf().set(opt).from(element).save().then(() => {
+  const restore = () => {
+    host.remove();
     downloadButton.disabled = false;
     downloadButton.innerHTML = originalText;
-    document.querySelectorAll(".row-action-btn").forEach(btn => btn.style.display = "");
-  }).catch((err) => {
+  };
+
+  html2pdf().set(opt).from(clone).save().then(restore).catch((err) => {
     console.error("PDF generation error: ", err);
     alert("Ocurrió un error al generar el PDF. Por favor intenta de nuevo.");
-    downloadButton.disabled = false;
-    downloadButton.innerHTML = originalText;
-    document.querySelectorAll(".row-action-btn").forEach(btn => btn.style.display = "");
+    restore();
   });
 }
 

@@ -1445,21 +1445,28 @@ function renderHistory() {
 
 // Download PDF
 function downloadPDF() {
-  const source = document.getElementById("proforma-print-area");
+  const element = document.getElementById("proforma-print-area");
   const clientName = document.getElementById("client-name").value.trim() || "Cliente";
 
-  // Clon fuera de pantalla: sin escala móvil, sin botones, ancho fijo (evita recortes y páginas en blanco)
-  const host = document.createElement("div");
-  host.className = "pdf-export-host is-exporting-pdf";
-  const clone = source.cloneNode(true);
-  clone.removeAttribute("id");
-  clone.style.transform = "none";
-  clone.querySelectorAll(".row-action-btn, button").forEach(el => el.remove());
-  host.appendChild(clone);
-  document.body.appendChild(host);
+  const downloadButton = document.getElementById("download-pdf-btn");
+  const originalText = downloadButton.innerHTML;
+  downloadButton.disabled = true;
+  downloadButton.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generando PDF...';
+
+  // Guardar estilos temporales para capturar a tamaño natural (800px) sin escalas móviles ni sombras
+  const origTransform = element.style.transform;
+  const origTransformOrigin = element.style.transformOrigin;
+  const origBoxShadow = element.style.boxShadow;
+  const origTransition = element.style.transition;
+
+  element.style.transform = "none";
+  element.style.transformOrigin = "initial";
+  element.style.boxShadow = "none";
+  element.style.transition = "none";
+  document.body.classList.add("is-exporting-pdf");
 
   const opt = {
-    margin: [0.3, 0.3, 0.3, 0.3],
+    margin: 0,
     filename: `Proforma_${clientName.replace(/\s+/g, '_')}.pdf`,
     image: { type: 'jpeg', quality: 0.98 },
     html2canvas: {
@@ -1468,29 +1475,29 @@ function downloadPDF() {
       logging: false,
       letterRendering: true,
       scrollX: 0,
-      scrollY: 0,
-      windowWidth: 800,
-      width: 800
+      scrollY: 0
     },
     jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
     pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', '.pdf-footer-layout', '.pdf-header'] }
   };
 
-  const downloadButton = document.getElementById("download-pdf-btn");
-  const originalText = downloadButton.innerHTML;
-  downloadButton.disabled = true;
-  downloadButton.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generando PDF...';
-
-  const restore = () => {
-    host.remove();
+  const cleanup = () => {
+    element.style.transform = origTransform;
+    element.style.transformOrigin = origTransformOrigin;
+    element.style.boxShadow = origBoxShadow;
+    element.style.transition = origTransition;
+    document.body.classList.remove("is-exporting-pdf");
     downloadButton.disabled = false;
     downloadButton.innerHTML = originalText;
   };
 
-  html2pdf().set(opt).from(clone).save().then(restore).catch((err) => {
+  html2pdf().set(opt).from(element).save().then(() => {
+    cleanup();
+    showToast("📄 PDF generado y descargado exitosamente", "success");
+  }).catch((err) => {
     console.error("PDF generation error: ", err);
-    alert("Ocurrió un error al generar el PDF. Por favor intenta de nuevo.");
-    restore();
+    cleanup();
+    showToast("Ocurrió un error al generar el PDF. Por favor intenta de nuevo.", "error");
   });
 }
 

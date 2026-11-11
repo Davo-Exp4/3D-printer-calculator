@@ -1602,22 +1602,6 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
 .pdf-table td.col-unit { white-space: nowrap; }
 .pdf-table td.col-total { padding: 8px 10px; }
 
-/* Clon de exportación: fuera de pantalla, sin transformaciones, ajustado a 1 página carta */
-.pdf-export-host {
-  position: fixed;
-  left: -10000px;
-  top: 0;
-  width: 800px;
-  pointer-events: none;
-}
-.pdf-export-host .proforma-pdf {
-  transform: none !important;
-  width: 800px;
-  min-height: 1040px;
-  box-shadow: none;
-  border-radius: 0;
-}
-
 /* ==========================================================================
    Persistencia, Estado de Proforma, Búsqueda y Toasts
    ========================================================================== */
